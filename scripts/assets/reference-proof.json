@@ -1,0 +1,73 @@
+{
+  "schema": "ds41-assets-reference-proof-v1",
+  "excluded_fields": [],
+  "all_match": true,
+  "files": [
+    {
+      "file": "full-integrity.json",
+      "reference_sha256": "4e003f2ab741ca0783db94d23e7bcfd3fa005f7c5cac771416ad295b349b8367",
+      "regenerated_sha256": "4e003f2ab741ca0783db94d23e7bcfd3fa005f7c5cac771416ad295b349b8367",
+      "bytes": 17590,
+      "match": true
+    },
+    {
+      "file": "records.tsv",
+      "reference_sha256": "085e4dd314ccfd11eb2864c5d5850538efc3356ba5dbfd22f1d7598beb7a3b51",
+      "regenerated_sha256": "085e4dd314ccfd11eb2864c5d5850538efc3356ba5dbfd22f1d7598beb7a3b51",
+      "bytes": 6968166,
+      "match": true
+    },
+    {
+      "file": "engram.json",
+      "reference_sha256": "edebf1b3ed13ce1ca4124e6c844624db66f045c46c8d04db37e56e1cb276f73d",
+      "regenerated_sha256": "edebf1b3ed13ce1ca4124e6c844624db66f045c46c8d04db37e56e1cb276f73d",
+      "bytes": 746895,
+      "match": true
+    },
+    {
+      "file": "rope.bin",
+      "reference_sha256": "5476db91830804ed4289b9b23ad0e475d863d65f73c246aed88157b22ef0d575",
+      "regenerated_sha256": "5476db91830804ed4289b9b23ad0e475d863d65f73c246aed88157b22ef0d575",
+      "bytes": 536870912,
+      "match": true
+    },
+    {
+      "file": "rope.bin.json",
+      "reference_sha256": "bd0d6ca6bbee782f628c5bfec06c37cad3bd2262bba154ef1b12324d59b5d53d",
+      "regenerated_sha256": "bd0d6ca6bbee782f628c5bfec06c37cad3bd2262bba154ef1b12324d59b5d53d",
+      "bytes": 316,
+      "match": true
+    },
+    {
+      "file": "auxiliary.json",
+      "reference_sha256": "2f57e890915fc2050039f0cc1061e57ee7ce8a50260dd9692d3503731112ec0b",
+      "regenerated_sha256": "2f57e890915fc2050039f0cc1061e57ee7ce8a50260dd9692d3503731112ec0b",
+      "bytes": 1976,
+      "match": true
+    }
+  ],
+  "full_scan_bytes": 510296708312,
+  "hashed_shards": 48,
+  "full_run_seconds": 356.249,
+  "steps_seconds": {
+    "full-integrity": 346.355,
+    "expert-records": 0.747,
+    "engram": 5.682,
+    "rope-cuda": 2.815,
+    "auxiliary": 0.227
+  },
+  "receipt_reuse_run_seconds": 7.644,
+  "receipt_reuse_steps_seconds": {
+    "full-integrity": 0.0,
+    "expert-records": 0.746,
+    "engram": 3.777,
+    "rope-cuda": 2.476,
+    "auxiliary": 0.221
+  },
+  "peak_host_rss_kib": 1745468,
+  "gpu_total_used_mib_baseline": 20,
+  "gpu_total_used_mib_peak": 1510,
+  "sample_count": 600,
+  "interval_seconds": 0.2,
+  "elapsed_seconds": 133.313
+}

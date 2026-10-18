@@ -1,0 +1,11 @@
+/.venv/
+/.venv-assets/
+/models/
+/generated/
+/build/
+/results/
+/config.local.json
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

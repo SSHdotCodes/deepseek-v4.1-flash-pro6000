@@ -1,0 +1,13 @@
+{
+  "weights": "models/DeepSeek-V4.1-Flash-1017",
+  "assets": "generated",
+  "build": "build",
+  "port": 18087,
+  "unit": "ds41-pro6000",
+  "model_id": "deepseek-v4.1-flash-1017",
+  "host_gib": "auto",
+  "gds": "auto",
+  "max_context": 1048576,
+  "max_tokens_limit": 131072,
+  "max_queue": 16
+}

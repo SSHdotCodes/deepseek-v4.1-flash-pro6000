@@ -1,0 +1,106 @@
+{
+  "schema": "ds41-sources-v1",
+  "components": [
+    {
+      "path": "engine",
+      "role": "ds41d engine, native DSpark drafter (lead/install-v1)",
+      "origin_repo": "engine-install",
+      "origin_commit": "29cf61fa74e10432e9780436cec9d80dced2d4b3",
+      "origin_tree_sha256": "6ced54759b4248a486e0ab4428f2c9a306495d43895ca09182dd8f6da2a3ac50",
+      "origin_files": 71,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 71,
+      "tree_sha256": "19387ebf8fe193e216282c3d6e57a5d234ec428463e8ae753121c25f8ade10dc"
+    },
+    {
+      "path": "components/moe",
+      "role": "expert store: VRAM slots, exclusive RAM tier, GDS/O_DIRECT NVMe reads, MXFP4 kernels (lead/demote)",
+      "origin_repo": "moe-lead",
+      "origin_commit": "82caaf64581283b28231be72be88bcbba904e8d0",
+      "origin_tree_sha256": "4057b8dc6f89a2247dbefe7f72804bf67cb9d66a2633b97ad9bef5298017cb48",
+      "origin_files": 13,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 14,
+      "tree_sha256": "4c97d6b4a08728982c80b1e3ce15157127f0255e79f673ed0a312365ac8fcb78"
+    },
+    {
+      "path": "components/dense",
+      "role": "dense FP8 layers and the Engram store (round-2 final)",
+      "origin_repo": "dense",
+      "origin_commit": "d8a47c0fad4336d9fd9e4457f8dd0f612c24f5dd",
+      "origin_tree_sha256": "44592db26194c55e1d67ab9482d077142e767466185bb545629eabacaba3e47c",
+      "origin_files": 13,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 13,
+      "tree_sha256": "4c12334fbb215959911c7368d6f9acc415d4308e5364c09a8b8cee200a5ea775"
+    },
+    {
+      "path": "components/attn",
+      "role": "sparse/compressed attention kernels (final)",
+      "origin_repo": "attn",
+      "origin_commit": "2f90399583b3ff623eaeb307e630bd63fc4a26bf",
+      "origin_tree_sha256": "b24595331ce839c31e32e5925ad985de92196024cb11879b2760c52396f1f33b",
+      "origin_files": 12,
+      "release_build_files": [
+        "build.sh"
+      ],
+      "files": 13,
+      "tree_sha256": "dcd4805b0e9b01b60be2eff31e75028b28451a4669c94f38102e912c970a490f"
+    },
+    {
+      "path": "components/spark-policy",
+      "role": "DSpark host policy sidecar (policy v2 freeze)",
+      "origin_repo": "spark",
+      "origin_commit": "b609c58b62418eea044a90dce03c0a32b146f10b",
+      "origin_tree_sha256": "8cd8a198d8e0928fbd9667bd30474d83139040acb23c11b4202e35c199dd1cae",
+      "origin_files": 2,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 3,
+      "tree_sha256": "2a1729a7aa1bf22d788adb27a001f1a57c6048493eef78e05f4cb4179b53c9fc"
+    },
+    {
+      "path": "components/fuse-head",
+      "role": "fused BF16 LM head (head winner r1)",
+      "origin_repo": "fuse",
+      "origin_commit": "9e36d07abc069a822b8f57ebd0523e9ba7bd954e",
+      "origin_tree_sha256": "1908b2fad685a4958717df440f304cb4fb3e43dcf444a13479d97fc0d6d1f41e",
+      "origin_files": 4,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 5,
+      "tree_sha256": "ba1601bcfbf774fad4ac421f1092bdeaebe4ca96e3e9955116fb48f49bf67e51"
+    }
+  ],
+  "dependencies": {
+    "tilelang": {
+      "version": "0.1.12",
+      "sha256": "bbeb5573cbe2544a51a5c9a6cc737c5e3b5c2d95411caa3687fd9b08eb9d5f97",
+      "file": "tilelang-0.1.12-cp38-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "use": "headers only: src/tl_templates and the bundled CUTLASS 4.1.0 include tree, for components/attn"
+    },
+    "nvidia-cublas": {
+      "version": "13.1.1.3",
+      "sha256": "37936a16db8fe4ac1f065c2139360608a543a09275cb1a1af612e08cfa065436",
+      "file": "nvidia_cublas-13.1.1.3-py3-none-manylinux_2_27_x86_64.whl",
+      "use": "libcublas.so.13 (25cde432...) and libcublasLt.so.13 (1489aeb7...), the cuBLAS pair the engine pins at build and run time"
+    }
+  },
+  "toolchain": {
+    "cuda": "CUDA Toolkit 13.4.0 (nvcc release 13.4; libcudart.so.13.4.92, SHA-256 7fb00519a24512bf677b59e87921e5c05aac8246ceb6a57435c0d9dfeef364f6, pinned by the engine)",
+    "gcc": "15.2.0",
+    "cmake": "4.2.3",
+    "os": "Ubuntu 26.04.1 LTS, kernel 7.0.0-38",
+    "driver": "615.71.09",
+    "gpu": "RTX PRO 6000 Blackwell Workstation Edition (sm_120a)"
+  },
+  "note": "Each component tree is extracted unchanged from its origin commit in the project's private development repositories, except the files in release_build_files: CMake/build scripts written or edited so the tree builds standalone (install rules, component paths, no machine paths). tree_sha256 covers the tree as shipped; origin_tree_sha256 the tree as extracted."
+}

@@ -1,0 +1,106 @@
+{
+ "logging": {
+  "dir": "@CUFILE_LOG_DIR@",
+  "level": "ERROR"
+ },
+ "profile": {
+  "nvtx": false,
+  "cufile_stats": 3
+ },
+ "execution": {
+  "max_io_queue_depth": 128,
+  "max_io_threads": 0,
+  "parallel_io": true,
+  "min_io_threshold_size_kb": 8192,
+  "max_request_parallelism": 4
+ },
+ "properties": {
+  "gpu_bounce_buffer_slab_config": {
+   "slab_size_kb": [
+    1024,
+    8192,
+    16384,
+    65536
+   ],
+   "slab_count": [
+    128,
+    8,
+    4,
+    2
+   ]
+  },
+  "max_device_pinned_mem_size_kb": 104857600,
+  "posix_pool_slab_size_kb": [
+   4,
+   1024,
+   16384
+  ],
+  "posix_pool_slab_count": [
+   128,
+   64,
+   64
+  ],
+  "use_poll_mode": false,
+  "poll_mode_max_size_kb": 4,
+  "use_pci_p2pdma": true,
+  "allow_compat_mode": true,
+  "vanilla_posix_io_mode": false,
+  "gds_fallback_io": false,
+  "gds_rdma_write_support": true,
+  "io_batchsize": 128,
+  "io_priority": "default",
+  "rdma_dev_addr_list": [],
+  "rdma_load_balancing_policy": "RoundRobin",
+  "rdma_transport_type": "DC_V1",
+  "rdma_dynamic_routing": false,
+  "rdma_dynamic_routing_order": [
+   "GPU_MEM_NVLINKS",
+   "GPU_MEM",
+   "SYS_MEM",
+   "P2P"
+  ]
+ },
+ "fs": {
+  "generic": {
+   "posix_unaligned_writes": false
+  },
+  "beegfs": {
+   "posix_gds_min_kb": 0
+  },
+  "lustre": {
+   "posix_gds_min_kb": 0
+  },
+  "nfs": {
+   "use_pci_p2pdma": false
+  },
+  "gpfs": {
+   "gds_write_support": true,
+   "gds_async_support": true
+  },
+  "weka": {
+   "rdma_write_support": false
+  }
+ },
+ "block": {
+  "nvme": {
+   "use_pci_p2pdma": true
+  },
+  "nvmeof": {
+   "use_pci_p2pdma": false
+  },
+  "raid": {
+   "use_pci_p2pdma": false
+  }
+ },
+ "denylist": {
+  "drivers": [],
+  "devices": [],
+  "mounts": [],
+  "filesystems": []
+ },
+ "miscellaneous": {
+  "api_check_aggressive": false,
+  "enable_static_routing": false,
+  "static_routing_filepath": "/etc/topology.json"
+ }
+}
