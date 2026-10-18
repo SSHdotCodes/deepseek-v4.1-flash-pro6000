@@ -29,7 +29,7 @@ Every token routes to 6 experts in each of 40 layers, plus 3 in each MTP layer w
 
 The placement ranks experts by routing frequency over prompts from many sessions. It pins 3,240 experts and leaves the other 1,212 slots to the dynamic cache; pinning half as many, or none, measured slower.
 
-A RAM hit costs about 0.17 ms per expert and an NVMe miss about 1.19 ms. Host DRAM (DDR5-3600, about 48 GB/s) is shared by GPU uploads, NVMe writes into RAM and the CPU; GDS P2P keeps NVMe reads out of it. Under concurrent uploads it cut an NVMe miss from 2.76 to 1.69 ms and raised upload bandwidth from 34 to 45 GB/s.
+Development measurements (raw data not included): a RAM hit costs about 0.17 ms per expert and an NVMe miss about 1.19 ms. Host DRAM (DDR5-3600, about 48 GB/s) is shared by GPU uploads, NVMe writes into RAM and the CPU; GDS P2P keeps NVMe reads out of it. Under concurrent uploads it cut an NVMe miss from 2.76 to 1.69 ms and raised upload bandwidth from 34 to 45 GB/s.
 
 ## A decode step
 
@@ -38,7 +38,7 @@ A RAM hit costs about 0.17 ms per expert and an NVMe miss about 1.19 ms. Host DR
 3. **Accept.** Rejection sampling at the request's temperature and top-p accepts a prefix of the draft and samples the next token from the target's residual distribution. The output distribution is the target's own; with the same seed, the tokens do not depend on cache state, the RAM tier size or GDS.
 4. **Prefetch.** While layer *l* runs, layer *l+1*'s router is scored on layer *l*'s input and the predicted RAM-resident experts start uploading (`--prefetch-lookahead`; top 4 per row for the first 2 rows). A prediction only moves data: routing uses the real router.
 
-The step is transfer-bound: the GPU is busy for about 22 ms of an 80 ms verify step, and a layer costs about 0.158 + 0.171 x (RAM hits) + 1.191 x (NVMe misses) ms. Decode steps are replayed as CUDA graphs.
+The step is transfer-bound. In development profiling (raw data not included) the GPU was busy for about 22 ms of an 80 ms verify step, and a layer cost about 0.158 + 0.171 x (RAM hits) + 1.191 x (NVMe misses) ms. Decode steps are replayed as CUDA graphs.
 
 ## Prompts
 

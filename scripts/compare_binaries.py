@@ -25,7 +25,9 @@ CUOBJDUMP = str(Path(os.environ.get('CUDA_HOME', '/usr/local/cuda-13.4')) / 'bin
 
 def run(*cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else None
+    if r.returncode:
+        raise RuntimeError(f'{" ".join(cmd)} failed: {r.stderr.strip()[:300]}')
+    return r.stdout
 
 
 def digest(lines):
@@ -33,8 +35,14 @@ def digest(lines):
 
 
 def sass(path):
-    out = run(CUOBJDUMP, '-sass', str(path))
-    if not out or 'Function :' not in out:
+    """None only for a file without device code; any other cuobjdump failure raises."""
+    r = subprocess.run([CUOBJDUMP, '-sass', str(path)], capture_output=True, text=True)
+    if r.returncode and 'does not contain device code' in r.stderr:
+        return None
+    if r.returncode:
+        raise RuntimeError(f'cuobjdump failed on {path}: {r.stderr.strip()[:300]}')
+    out = r.stdout
+    if 'Function :' not in out:
         return None
     return digest(re.sub(r'/\*[0-9a-f]{4,}\*/', '', ANON.sub('_GLOBAL__N__X_', l.strip()))
                   for l in out.splitlines() if 'Function :' in l or re.match(r'\s+/\*[0-9a-f]{4,}\*/', l))
@@ -42,8 +50,6 @@ def sass(path):
 
 def host_text(path):
     out = run('objdump', '-d', '--no-show-raw-insn', '--no-addresses', '-j', '.text', str(path))
-    if not out:
-        return None
     lines = []
     for l in out.splitlines()[3:]:
         s = ANON.sub('_GLOBAL__N__X_', l.strip())
@@ -56,7 +62,7 @@ def host_text(path):
 
 def symbols(path):
     out = run('nm', '-D', '--defined-only', str(path))
-    return None if not out else digest(sorted(ANON.sub('X', ' '.join(l.split()[1:])) for l in out.splitlines()))
+    return digest(sorted(ANON.sub('X', ' '.join(l.split()[1:])) for l in out.splitlines()))
 
 
 def main():
@@ -71,7 +77,10 @@ def main():
         row = {'file': name, 'bytes_identical': a.read_bytes() == b.read_bytes()}
         for key, fn in (('sass', sass), ('host_text', host_text), ('dynamic_symbols', symbols)):
             x, y = fn(a), fn(b)
-            row[key] = 'no device code' if x is None and y is None else ('identical' if x == y else 'differs')
+            if (x is None) != (y is None):
+                row[key] = 'device code in one build only'
+            else:
+                row[key] = 'no device code' if x is None else ('identical' if x == y else 'differs')
         rows.append(row)
         print(json.dumps(row), flush=True)
     if args.out:

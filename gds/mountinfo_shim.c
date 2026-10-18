@@ -1,6 +1,7 @@
-// Diagnostic LD_PRELOAD shim: present /proc mount tables with an explicit data=ordered on the root
-// ext4 filesystem (which already runs in ordered mode, per /proc/fs/ext4/<dev>/options), so cuFile's
-// journal-mode check can see it. Affects only the process it is preloaded into.
+// LD_PRELOAD shim for cuFile on ext4: present the /proc mount tables with an explicit data=ordered on
+// every ext4 mount that shows no data= option. Those mounts already run in ext4's default ordered mode
+// (see /proc/fs/ext4/<dev>/options), but Linux prints data= only when it was given at mount time, and
+// cuFile's journal-mode check reads the tables. Affects only the process it is preloaded into.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -30,19 +31,20 @@ static int patched_fd(const char *path) {
         char *nl = memchr(line, '\n', end - line); size_t len = nl ? (size_t)(nl - line) : (size_t)(end - line);
         char tmp[8192]; if (len >= sizeof tmp - 32) len = sizeof tmp - 32;
         memcpy(tmp, line, len); tmp[len] = 0;
-        // Root ext4 only: append data=ordered to the last options field (super options / mount options).
-        if (strstr(tmp, " ext4 ") && (strstr(tmp, " / ") ) && !strstr(tmp, "data=")) {
-            char *sp = strrchr(tmp, ' ');
-            if (strstr(path, "mountinfo")) strcat(tmp, ",data=ordered");
-            else if (sp) { // /proc/mounts: "dev / ext4 opts 0 0"
-                char *f[6]; int k = 0; char *s = tmp, *save;
-                char copy[8192]; strcpy(copy, tmp);
+        if (!strstr(tmp, "data=")) {
+            if (strstr(path, "mountinfo")) {
+                // "<ids> <root> <mount point> <options> [optional fields] - ext4 <source> <super options>"
+                char *dash = strstr(tmp, " - ");
+                if (dash && !strncmp(dash + 3, "ext4 ", 5)) strcat(tmp, ",data=ordered");
+            } else {
+                // /proc/mounts: "<source> <mount point> ext4 <options> 0 0"
+                char *f[6]; int k = 0; char copy[8192], *save; strcpy(copy, tmp);
                 for (char *t = strtok_r(copy, " ", &save); t && k < 6; t = strtok_r(NULL, " ", &save)) f[k++] = t;
-                if (k == 6) snprintf(tmp, sizeof tmp, "%s %s %s %s,data=ordered %s %s", f[0], f[1], f[2], f[3], f[4], f[5]);
-                (void)s;
+                if (k == 6 && !strcmp(f[2], "ext4"))
+                    snprintf(tmp, sizeof tmp, "%s %s %s %s,data=ordered %s %s", f[0], f[1], f[2], f[3], f[4], f[5]);
             }
         }
-        write(out, tmp, strlen(tmp)); write(out, "\n", 1);
+        if (write(out, tmp, strlen(tmp)) < 0 || write(out, "\n", 1) < 0) break;
         line += (nl ? (size_t)(nl - line) + 1 : len);
         if (!nl) break;
     }

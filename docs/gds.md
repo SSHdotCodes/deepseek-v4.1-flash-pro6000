@@ -2,7 +2,7 @@
 
 About a third of the routed experts are not in VRAM or RAM and are read from NVMe when a token routes to them. Without GDS, each read lands in pinned host memory and is then copied to the GPU, so the bytes cross host DRAM twice, competing with the RAM tier's own uploads for about 48 GB/s of DRAM bandwidth. With GDS P2P, cuFile has the NVMe drive write straight into the expert's VRAM slot over PCIe.
 
-On the reference machine, with uploads from RAM running at the same time, P2P cut an NVMe expert read from 2.76 to 1.69 ms and raised the concurrent upload rate from 34 to 45 GB/s. End to end, on a fresh clone of this repo, decode measured 31.61 tok/s with P2P and 30.79 without; all 12 paired prompts were faster with P2P (+0.4% to +5.0%, median +2.8%), with identical tokens ([results](../benchmarks/clean-clone-20261018/)).
+In a development microbenchmark on the reference machine (raw data not included), with uploads from RAM running at the same time, P2P cut an NVMe expert read from 2.76 to 1.69 ms and raised the concurrent upload rate from 34 to 45 GB/s. End to end, on a fresh clone of this repo, decode measured 31.61 tok/s with P2P and 30.79 without; all 12 paired prompts were faster with P2P (+0.4% to +5.0%, median +2.8%), with identical tokens ([results](../benchmarks/clean-clone-20261018/)).
 
 ## Enabling P2P
 

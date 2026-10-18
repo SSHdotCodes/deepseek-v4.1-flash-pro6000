@@ -101,7 +101,7 @@ python3 scripts/run.py start
 - **Prefetching.** While layer *l* runs, layer *l+1*'s router is scored on its input and the predicted RAM-resident experts start copying to VRAM. After a long prompt, the experts it used are read from NVMe into RAM for the answer.
 - **Prompts.** Prefill runs 256 rows per launch in segments sized to the VRAM the expert cache leaves free, and a follow-up turn reuses the latest conversation's state.
 
-Decode is bound by expert transfers, not compute: the GPU is busy for about 22 ms of an 80 ms verify step. Each layer costs about 0.16 ms plus 0.17 ms per expert from RAM and 1.19 ms per expert from NVMe. More RAM, a second NVMe drive or faster DRAM would help most. [Engine details](docs/engine.md), [asset pipeline](docs/assets.md).
+Decode is bound by expert transfers, not compute. Profiling during development (raw data not included) found the GPU busy for about 22 ms of an 80 ms verify step. Each layer costs about 0.16 ms plus 0.17 ms per expert from RAM and 1.19 ms per expert from NVMe. More RAM, a second NVMe drive or faster DRAM would help most. [Engine details](docs/engine.md), [asset pipeline](docs/assets.md).
 
 ## Credits and licenses
 

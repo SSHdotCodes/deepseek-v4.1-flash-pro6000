@@ -3,7 +3,7 @@
 Every number on this page has its raw data in [`benchmarks/`](../benchmarks/), except where marked. All are from one machine:
 
 - RTX PRO 6000 Blackwell Workstation Edition (96 GB, 580 W limit), driver 615.71.09, CUDA 13.4.0;
-- AMD Ryzen 9 9950X3D, 128 GB DDR5-3600 (four DIMMs, about 48 GB/s), 120.7 GiB visible to Linux;
+- AMD Ryzen 9 9950X3D, 128 GB DDR5-3600 (four DIMMs), 120.7 GiB visible to Linux;
 - one PCIe 5.0 NVMe drive with ext4, GPUDirect Storage P2P enabled (`gds/enable-p2p.sh`);
 - Ubuntu 26.04.1, kernel 7.0.0-38.
 
@@ -60,7 +60,7 @@ All 24 paired prompts were faster with 104 GiB (+1.4% to +5.0%), with identical 
 
 A fresh clone of this repo, following the README on the same machine (`benchmarks/clean-clone-20261018/`):
 
-- **Build.** `scripts/build.sh` took 7 minutes, 6 of them hashing the 510 GB checkpoint; all 7 engine tests passed. A second run took 38 seconds: unchanged shards are not hashed again.
+- **Build.** `scripts/build.sh` took 7 minutes, 6 of them hashing the 510 GB checkpoint; all 7 engine tests passed. A second run took 38 seconds: unchanged shards are not hashed again ([`run.log`](../benchmarks/clean-clone-20261018/run.log)).
 - **Binaries.** Compared with the measured service's 11 runtime files, every kernel's instructions (`cuobjdump -sass`), the host code (`objdump`) and the exported symbols are identical once build paths are normalized ([`binary-comparison.json`](../benchmarks/clean-clone-20261018/binary-comparison.json)). The bytes differ where paths are recorded: nvcc's anonymous-namespace names, `-lineinfo` and `assert` messages. The service's two fused-head kernel libraries also carry an unused sm_120 PTX copy.
 - **Decode.** `scripts/benchmark.py --seeds 21 22`: 31.61 tok/s, all 14 token sequences identical to the reference run.
 - **GDS.** The same run with `"gds": false`: 30.79 tok/s with identical tokens. All 12 paired prompts were faster with P2P (+0.4% to +5.0%, median +2.8%).

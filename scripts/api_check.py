@@ -6,7 +6,9 @@ a tool call and a tool round trip; Anthropic Messages with streaming, a tool cal
 Responses. Then times cold prompts of about 2K, 8K and 32K tokens (fresh text each, so nothing is reused) and a
 follow-up turn on the 8K conversation (prefix reuse), with thinking off and up to 64 output tokens.
 
-  .venv/bin/python scripts/api_check.py [--base http://127.0.0.1:18087] [--out results/api-check.json]
+  .venv/bin/python scripts/api_check.py [--base URL] [--out results/api-check.json]
+
+The server URL and model ID default to config.local.json (or config.example.json).
 """
 import argparse
 import json
@@ -16,8 +18,11 @@ import time
 
 import httpx
 
-ROOT = Path(__file__).resolve().parents[1]
-MODEL = 'deepseek-v4.1-flash-1017'
+sys.dont_write_bytecode = True
+import run
+
+ROOT = run.ROOT
+MODEL = 'deepseek-v4.1-flash-1017'  # replaced by the configured model_id in main()
 SAMPLING = {'temperature': 1.0, 'top_p': 1.0}
 TOOL = {'type': 'function', 'function': {
     'name': 'get_weather', 'description': 'Current weather for a city.',
@@ -71,11 +76,14 @@ class Checker:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--base', default='http://127.0.0.1:18087')
+    p.add_argument('--base', help='server URL (default: http://127.0.0.1:<configured port>)')
     p.add_argument('--out', type=Path)
     p.add_argument('--skip-timing', action='store_true')
     args = p.parse_args()
-    c = Checker(args.base)
+    global MODEL
+    cfg = run.configuration()
+    MODEL = cfg['model_id']
+    c = Checker(args.base or f'http://127.0.0.1:{cfg["port"]}')
     question = [{'role': 'user', 'content': 'What is 17 * 23? Reply with the number only.'}]
 
     def health():
@@ -234,7 +242,7 @@ def main():
     failed = [r['check'] for r in c.results if not r['ok']]
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps({'base': args.base, 'results': c.results}, indent=1) + '\n')
+        args.out.write_text(json.dumps({'base': c.base, 'model': MODEL, 'results': c.results}, indent=1) + '\n')
     print(f'{len(c.results) - len(failed)}/{len(c.results)} checks passed' + (f'; failed: {failed}' if failed else ''))
     sys.exit(1 if failed else 0)
 
