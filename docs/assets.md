@@ -36,7 +36,7 @@ The engine refuses to start if any of these disagree with each other, with the c
 
 Peak host memory is 1.7 GiB. Caches and the restart journal stay in `generated/.prepare-assets/`, with a report of step timings and checksums in `report.json`.
 
-`--skip-integrity` reuses an existing `full-integrity.json` for the same files instead of hashing 510 GB again; it still checks the receipt's root, revision, hashes, sizes and mtimes, and fails on any mismatch. `scripts/build.sh` uses it when it only needs to bind a newly built Engram library. Run without it after the files change.
+`scripts/build.sh` runs this command on every build; with nothing changed it takes about 7 seconds and keeps the receipt byte for byte. `--skip-integrity` instead trusts an existing `full-integrity.json` after checking its root, revision, hashes, sizes and mtimes, without the journal's inode and ctime checks.
 
 ## Location-dependent fields
 

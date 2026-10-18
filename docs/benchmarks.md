@@ -1,6 +1,6 @@
 # Benchmarks
 
-All numbers are from one machine:
+Every number on this page has its raw data in [`benchmarks/`](../benchmarks/), except where marked. All are from one machine:
 
 - RTX PRO 6000 Blackwell Workstation Edition (96 GB, 580 W limit), driver 615.71.09, CUDA 13.4.0;
 - AMD Ryzen 9 9950X3D, 128 GB DDR5-3600 (four DIMMs, about 48 GB/s), 120.7 GiB visible to Linux;
@@ -54,19 +54,23 @@ The measured service with a 104 GiB and a 96 GiB RAM tier, seeds 11 to 14 interl
 | experts read from NVMe | 38,929 | 43,940 |
 | experts uploaded from RAM | 159,928 | 154,195 |
 
-All 24 paired prompts were faster with 104 GiB (+1.4% to +5.0%), with identical tokens. Through systemd, the 104 GiB service peaked at 105.8 GiB of anonymous memory, and the system kept at least 5.5 GiB available during 8K–29K-token prompts.
+All 24 paired prompts were faster with 104 GiB (+1.4% to +5.0%), with identical tokens. Through systemd, the 104 GiB service peaked at 105.8 GiB of anonymous memory, and the system kept at least 5.5 GiB available during 8K–29K-token prompts (memory log not included).
 
-## Prompts and API
+## Clean clone
 
-Through the HTTP API on the measured service (thinking off, up to 128 output tokens):
+A fresh clone of this repo, following the README on the same machine (`benchmarks/clean-clone-20261018/`):
 
-| | Time to first token |
-|---|---:|
-| 17-token prompt | 1.2 s |
-| cold 2.3K-token prompt | 9.7 s |
-| cold 8.3K-token prompt | 13.5 s |
-| cold 24.6K-token prompt | 23.1 s |
-| cold 28.7K-token prompt | 24.6 s |
-| follow-up turn on an 8K-token conversation | 0.7 s |
+- **Build.** `scripts/build.sh` took 7 minutes, 6 of them hashing the 510 GB checkpoint; all 7 engine tests passed. A second run took 38 seconds: unchanged shards are not hashed again.
+- **Binaries.** Compared with the measured service's 11 runtime files, every kernel's instructions (`cuobjdump -sass`), the host code (`objdump`) and the exported symbols are identical once build paths are normalized ([`binary-comparison.json`](../benchmarks/clean-clone-20261018/binary-comparison.json)). The bytes differ where paths are recorded: nvcc's anonymous-namespace names, `-lineinfo` and `assert` messages. The service's two fused-head kernel libraries also carry an unused sm_120 PTX copy.
+- **Decode.** `scripts/benchmark.py --seeds 21 22`: 31.61 tok/s, all 14 token sequences identical to the reference run.
+- **GDS.** The same run with `"gds": false`: 30.79 tok/s with identical tokens. All 12 paired prompts were faster with P2P (+0.4% to +5.0%, median +2.8%).
+- **API.** `scripts/api_check.py`: 15 of 15 checks passed.
 
-`scripts/api_check.py` repeats the cold-prompt measurement on fresh text at about 2K, 8K and 32K tokens, plus a follow-up turn, along with its API checks.
+| Through the API, thinking off, up to 64 output tokens | Prompt tokens | Time to first token | Prompt rate |
+|---|---:|---:|---:|
+| cold prompt | 2,047 | 9.0 s | 228 tok/s |
+| cold prompt | 8,192 | 13.3 s | 615 tok/s |
+| follow-up turn on that conversation (8,255 tokens reused) | 8,268 | 0.48 s | |
+| cold prompt | 32,765 | 33.4 s | 983 tok/s |
+
+The cold prompts are slices of this repo's own C++ and CUDA sources, so nothing is reused between them. On this machine, time to first token is roughly 6.5 seconds plus 0.8 ms per prompt token.

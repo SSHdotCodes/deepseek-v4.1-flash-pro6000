@@ -14,12 +14,11 @@
 |---|---:|
 | decode, mean of 3 short chats, a 2.3K-token multi-turn follow-up and two 8K-token agent turns | **31.6 tok/s** |
 | decode per prompt | 27–38 tok/s |
-| time to first token, cold 8K-token prompt | 13.5 s |
-| time to first token, cold 24K / 29K-token prompt | 23.1 s / 24.6 s |
-| follow-up turn on an 8K-token conversation (prefix reuse) | 0.7 s |
+| time to first token, cold 8K / 32K-token prompt | 13.3 s / 33.4 s |
+| time to first token, follow-up turn on an 8K-token conversation | 0.5 s |
 | against DeepSeek's reference implementation, 16-token greedy continuation | 16/16 tokens agree, mean KL 0.015 |
 
-Decode rates include thinking tokens and exclude prompt processing. They vary by prompt with how many experts each token needs from RAM and NVMe and how many drafted tokens are accepted (82–92%). A clean build from this repo returned the same tokens as the measured service on all 14 benchmark requests, at the same speed (31.62 against 31.67 tok/s). [Benchmarks](docs/benchmarks.md).
+Decode rates include thinking tokens and exclude prompt processing. They vary by prompt with how many experts each token needs from RAM and NVMe and how many drafted tokens are accepted (82–92%). A fresh clone of this repo, built with `scripts/build.sh`, returned the same tokens as the measured service on all 14 benchmark requests, at the same speed (31.61 against 31.67 tok/s), and its binaries have the same code. [Benchmarks](docs/benchmarks.md).
 
 ## What you need
 

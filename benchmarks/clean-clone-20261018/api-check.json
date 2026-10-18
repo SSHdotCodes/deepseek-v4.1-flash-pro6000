@@ -1,0 +1,158 @@
+{
+ "base": "http://127.0.0.1:18187",
+ "results": [
+  {
+   "check": "health and models",
+   "ok": true,
+   "seconds": 0.0,
+   "detail": "deepseek-v4.1-flash-1017"
+  },
+  {
+   "check": "chat",
+   "ok": true,
+   "seconds": 3.5,
+   "detail": {
+    "content": "391",
+    "reasoning_chars": 38,
+    "usage": {
+     "prompt_tokens": 44,
+     "completion_tokens": 15,
+     "total_tokens": 59,
+     "completion_tokens_details": {
+      "reasoning_tokens": 14
+     },
+     "prompt_tokens_details": {
+      "cached_tokens": 0
+     },
+     "ds41_timing": {
+      "queue_ms": 0.018,
+      "prefill_ms": 2373.037,
+      "decode_ms": 1123.303,
+      "decode_tok_s": 13.353,
+      "draft_tokens": 12,
+      "accepted_draft_tokens": 9,
+      "draft_acceptance_rate": 0.75
+     }
+    }
+   }
+  },
+  {
+   "check": "reasoning effort",
+   "ok": true,
+   "seconds": 3.58,
+   "detail": {
+    "low": 18,
+    "max": 22
+   }
+  },
+  {
+   "check": "thinking off",
+   "ok": true,
+   "seconds": 0.66,
+   "detail": "391"
+  },
+  {
+   "check": "chat streaming",
+   "ok": true,
+   "seconds": 1.79,
+   "detail": {
+    "ttft_s": 1.24,
+    "content": "391"
+   }
+  },
+  {
+   "check": "tool call",
+   "ok": true,
+   "seconds": 6.6,
+   "detail": {
+    "name": "get_weather",
+    "arguments": "{\"city\": \"Paris\"}"
+   }
+  },
+  {
+   "check": "tool round trip",
+   "ok": true,
+   "seconds": 8.17,
+   "detail": "Right now in Paris it's **17 \u00b0C** with **light rain**. You might want an umbrella if you're heading out."
+  },
+  {
+   "check": "anthropic messages",
+   "ok": true,
+   "seconds": 3.62,
+   "detail": {
+    "text": "391",
+    "stream_events": 23
+   }
+  },
+  {
+   "check": "anthropic tool use",
+   "ok": true,
+   "seconds": 5.52,
+   "detail": {
+    "city": "Paris"
+   }
+  },
+  {
+   "check": "anthropic count_tokens",
+   "ok": true,
+   "seconds": 0.0,
+   "detail": {
+    "input_tokens": 18
+   }
+  },
+  {
+   "check": "responses",
+   "ok": true,
+   "seconds": 1.79,
+   "detail": "391"
+  },
+  {
+   "check": "cold prompt ~2K",
+   "ok": true,
+   "seconds": 11.91,
+   "detail": {
+    "prompt_tokens": 2047,
+    "cached_tokens": 0,
+    "ttft_s": 8.99,
+    "prefill_tok_s": 227.8,
+    "decode_tok_s": 21.956
+   }
+  },
+  {
+   "check": "cold prompt ~8K",
+   "ok": true,
+   "seconds": 15.52,
+   "detail": {
+    "prompt_tokens": 8192,
+    "cached_tokens": 0,
+    "ttft_s": 13.32,
+    "prefill_tok_s": 615.2,
+    "decode_tok_s": 29.582
+   }
+  },
+  {
+   "check": "follow-up on 8K (reuse)",
+   "ok": true,
+   "seconds": 2.34,
+   "detail": {
+    "prompt_tokens": 8268,
+    "cached_tokens": 8255,
+    "ttft_s": 0.48,
+    "prefill_tok_s": 17491.0,
+    "decode_tok_s": 34.351
+   }
+  },
+  {
+   "check": "cold prompt ~32K",
+   "ok": true,
+   "seconds": 35.18,
+   "detail": {
+    "prompt_tokens": 32765,
+    "cached_tokens": 0,
+    "ttft_s": 33.36,
+    "prefill_tok_s": 982.9,
+    "decode_tok_s": 36.478
+   }
+  }
+ ]
+}

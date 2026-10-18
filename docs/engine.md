@@ -43,8 +43,8 @@ The step is transfer-bound: the GPU is busy for about 22 ms of an 80 ms verify s
 ## Prompts
 
 - **Batched prefill.** 256 rows per dense and attention launch, 8 rows per FP8 projection launch. Experts for a chunk are read once for all of its rows.
-- **Segments.** Long prompts split into segments that fit the VRAM the expert cache leaves free, so the 4,452 slots never shrink for a prompt. A 32K-token prompt prefills in about 29 seconds.
-- **Prefix reuse.** The engine keeps the state of the latest conversation. A request that extends it, whatever its conversation ID (`--prefix-cache --prefix-any-conversation`), prefills only its new tokens: a follow-up turn on an 8K conversation starts answering in 0.7 s.
+- **Segments.** Long prompts split into segments that fit the VRAM the expert cache leaves free, so the 4,452 slots never shrink for a prompt. A cold 32K-token prompt takes 33 seconds.
+- **Prefix reuse.** The engine keeps the state of the latest conversation. A request that extends it, whatever its conversation ID (`--prefix-cache --prefix-any-conversation`), prefills only its new tokens: a follow-up turn on an 8K conversation starts answering in 0.5 s.
 - **Warm RAM.** After a prompt of 256+ tokens, the experts its last 256 rows routed to are read from NVMe into RAM (up to 16 GiB), so the answer starts with them close.
 - **Drafter restore.** After a long appended turn, the drafter restarts from the last 128 rows of the append.
 
@@ -65,7 +65,7 @@ Speculative decoding is exact: see *Accept* above. The fused LM head (`libds41_f
 
 ## How the speed was found
 
-Measured with `scripts/benchmark.py`'s method on the six-prompt set:
+Measured during development with `scripts/benchmark.py`'s method on the six-prompt set (raw data for the last row only, in `benchmarks/`):
 
 | Version | Decode (tok/s) | Cold 8K prompt | Follow-up on 8K | What changed |
 |---|---:|---:|---:|---|
@@ -97,8 +97,6 @@ Each tree is extracted unchanged from the commit named in `sources.lock.json`, a
 
 ### Reproducing the binaries
 
-`scripts/build.sh` uses the same compiler flags as the measured service. Compared with the service's binaries by SASS (`cuobjdump`), host code (`objdump`) and dynamic symbols (`nm`):
+`scripts/build.sh` uses the same compiler flags as the measured service. A build from a fresh clone matches the service's 11 runtime files in every kernel's instructions (`cuobjdump -sass`), the host code (`objdump`) and the exported symbols, once build paths are normalized ([`benchmarks/clean-clone-20261018/binary-comparison.json`](../benchmarks/clean-clone-20261018/binary-comparison.json); `scripts/compare_binaries.py` compares any two builds). The bytes differ where paths are recorded: the names nvcc gives anonymous namespaces, `-lineinfo` data and `assert` messages. `auxiliary.json` authenticates the Engram library by SHA-256, so `scripts/build.sh` binds the assets to the library it built.
 
-- `ds41d`, `libengine_ops`, `libds41_spark`, `libds41_spark_policy_v2`, `libds41_moe`, `libds41_dense`, `libds41_attn`, `libds41_fuse_head`: identical.
-- `libds41_fuse_head_half` and `_tune`: identical code; the files differ in the source paths that `-lineinfo` records.
-- `libds41_engram`: identical code. Its bytes differ where the source path is recorded: in an `assert` message (the build makes it repo-relative) and in the symbol names nvcc gives anonymous namespaces. `auxiliary.json` authenticates this library by SHA-256, so `scripts/build.sh` binds the assets to the library it built.
+`engine/tests/*.py` are the development harness's reference checks; they need the project's reference environment, which is not part of this repo. The CTest suite that `scripts/build.sh` runs is self-contained.
