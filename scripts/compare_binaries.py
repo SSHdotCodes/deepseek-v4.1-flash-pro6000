@@ -43,7 +43,7 @@ def sass(path):
         raise RuntimeError(f'cuobjdump failed on {path}: {r.stderr.strip()[:300]}')
     out = r.stdout
     if 'Function :' not in out:
-        return None
+        raise RuntimeError(f'cuobjdump printed no kernels for {path}; unexpected output')
     return digest(re.sub(r'/\*[0-9a-f]{4,}\*/', '', ANON.sub('_GLOBAL__N__X_', l.strip()))
                   for l in out.splitlines() if 'Function :' in l or re.match(r'\s+/\*[0-9a-f]{4,}\*/', l))
 
