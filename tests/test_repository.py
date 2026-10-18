@@ -51,7 +51,7 @@ class SourceTests(unittest.TestCase):
                     '1489aeb75d55ee55782798343ac66f57771d561cc1fe1e0491568deefa0e6515'):
             self.assertIn(lib, cmake)
             self.assertIn(lib[:8], lock['dependencies']['nvidia-cublas']['use'])
-        # Path-independent Engram bytes: the library is authenticated by SHA-256 in auxiliary.json.
+        # No checkout paths in assert messages; the assets bind the Engram library actually built.
         self.assertIn('-ffile-prefix-map=$ROOT/=', build)
         self.assertIn('--engram-library "$ENGRAM"', build)
 
@@ -150,10 +150,14 @@ class ProfileTests(unittest.TestCase):
 
     def test_host_tier_follows_ram(self):
         cfg = self.config()
-        for total_gib, tier in ((120.7, 104), (250, 104), (110, 94)):
+        for total_gib, tier in ((120.7, 104), (250, 104), (115, 99)):
             with patch.object(run, 'meminfo', return_value={'MemTotal': int(total_gib * run.GIB)}):
                 self.assertEqual(run.host_gib(cfg), tier)
         self.assertEqual(run.host_gib(dict(cfg, host_gib=96)), 96)
+        # the placement's RAM seeds must fit the tier
+        seeds = sum(1 for l in (ROOT / 'profiles/p80-mtp48.placement').read_text().splitlines() if l.startswith('host '))
+        self.assertLessEqual(seeds * 18808832, run.MIN_HOST_GIB * run.GIB)
+        self.assertGreater(seeds * 18808832, (run.MIN_HOST_GIB - 1) * run.GIB)
 
     def test_mountinfo_shim_detection(self):
         mounts = ('32 2 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw\n'

@@ -13,26 +13,26 @@
 | temperature 1.0, top-p 1.0, thinking `high` | |
 |---|---:|
 | decode, mean of 3 short chats, a 2.3K-token multi-turn follow-up and two 8K-token agent turns | **31.6 tok/s** |
-| decode per request | 22–38 tok/s |
+| decode per prompt | 27–38 tok/s |
 | time to first token, cold 8K-token prompt | 13.5 s |
 | time to first token, cold 24K / 29K-token prompt | 23.1 s / 24.6 s |
 | follow-up turn on an 8K-token conversation (prefix reuse) | 0.7 s |
-| greedy agreement with DeepSeek's reference implementation | 16/16 prompts, mean KL 0.015 |
+| against DeepSeek's reference implementation, 16-token greedy continuation | 16/16 tokens agree, mean KL 0.015 |
 
-Decode rates include thinking tokens and exclude prompt processing. Short chats decode slowest (28 tok/s) and long agent turns fastest (up to 38), because the drafts are accepted more often. A clean build from this repo returned the same tokens as the measured service on all 14 benchmark requests, at the same speed (31.62 against 31.67 tok/s). [Benchmarks](docs/benchmarks.md).
+Decode rates include thinking tokens and exclude prompt processing. They vary by prompt with how many experts each token needs from RAM and NVMe and how many drafted tokens are accepted (82–92%). A clean build from this repo returned the same tokens as the measured service on all 14 benchmark requests, at the same speed (31.62 against 31.67 tok/s). [Benchmarks](docs/benchmarks.md).
 
 ## What you need
 
 - **GPU:** one RTX PRO 6000 Blackwell 96 GB, otherwise idle. The engine uses about 93 GB of VRAM.
-- **RAM:** 128 GB. The service pins 104 GiB of host memory for experts; by default the tier is your total RAM minus 16 GiB, at most 104 GiB. 96 GiB measured 3.3% slower than 104 GiB; smaller tiers work but read more from NVMe.
+- **RAM:** 128 GB at least. The service pins 104 GiB of host memory for experts: by default your total RAM minus 16 GiB, at most 104 GiB. The expert placement seeds 96 GiB of experts into RAM, so the tier cannot be smaller; 96 GiB measured 3.3% slower than 104 GiB.
 - **Disk:** 520 GB on a fast NVMe drive for the checkpoint, read during decode (an expert is 18.8 MB). Measured on one PCIe 5.0 drive with ext4. Another 10 GB for the Python environments and the build.
 - **Software:**
   - Linux with cgroup v2 and `systemctl --user`. The service runs with `MemorySwapMax=0`.
   - NVIDIA driver 615 (measured with 615.71.09).
   - **CUDA Toolkit 13.4.0** exactly. The engine checks that it runs with that release's `libcudart.so.13.4.92` and with the cuBLAS 13.1.1.3 pair the build downloads.
-  - GCC 13 or newer (measured with 15.2), CMake 3.24 or newer.
-  - [uv](https://docs.astral.sh/uv/) or Python 3.12.
-- **Recommended:** GPUDirect Storage P2P, so NVMe reads skip host RAM. It takes one modprobe file and a reboot ([docs/gds.md](docs/gds.md)). Without it, reads go through a host bounce buffer.
+  - GCC 13 or newer (measured with 15.2), CMake 3.24 or newer, OpenSSL headers. On Ubuntu: `sudo apt install build-essential cmake libssl-dev`.
+  - [uv](https://docs.astral.sh/uv/) or Python 3.12 with `venv`.
+- **Recommended:** GPUDirect Storage P2P, so NVMe reads skip host RAM. It takes one modprobe file and a reboot ([docs/gds.md](docs/gds.md)). Without it, reads go through a host bounce buffer: 30.8 instead of 31.6 tok/s, with the same tokens.
 
 ## Install and run
 
@@ -79,7 +79,7 @@ Defaults:
 - Thinking is on, at `high`. `reasoning_effort` takes `low`, `high` or `max` (the encoding's 50, 75 and 100); `"thinking": false` answers directly. Anthropic `thinking.budget_tokens` maps to the same three levels.
 - Sampling is DeepSeek's recommendation for this model: temperature 1.0, top-p 1.0.
 - A request may ask for up to 131,072 output tokens.
-- One request runs at a time; up to 16 wait in a queue. A request that extends an earlier conversation prefills only its new tokens.
+- One request runs at a time; up to 16 wait in a queue. A request that extends the latest conversation prefills only its new tokens.
 
 ## Reproduce the measurements
 
@@ -100,7 +100,7 @@ python3 scripts/run.py start
   - The remaining third is read from NVMe when routed, in 2 MiB chunks, straight into its VRAM slot through cuFile.
 - **Speculative decoding (DSpark).** The checkpoint's three MTP layers draft up to four tokens, and the target verifies them in one pass that loads each layer's experts once for all rows. Before each draft token the engine estimates its acceptance from the drafter's confidence and stops when another row would not pay for itself. Rejection sampling keeps the output distribution the target's own.
 - **Prefetching.** While layer *l* runs, layer *l+1*'s router is scored on its input and the predicted RAM-resident experts start copying to VRAM. After a long prompt, the experts it used are read from NVMe into RAM for the answer.
-- **Prompts.** Prefill runs 256 rows per launch in segments sized to the VRAM the expert cache leaves free, and reuses any earlier conversation's prefix.
+- **Prompts.** Prefill runs 256 rows per launch in segments sized to the VRAM the expert cache leaves free, and a follow-up turn reuses the latest conversation's state.
 
 Decode is bound by expert transfers, not compute: the GPU is busy for about 22 ms of an 80 ms verify step. Each layer costs about 0.16 ms plus 0.17 ms per expert from RAM and 1.19 ms per expert from NVMe. More RAM, a second NVMe drive or faster DRAM would help most. [Engine details](docs/engine.md), [asset pipeline](docs/assets.md).
 

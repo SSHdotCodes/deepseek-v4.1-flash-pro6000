@@ -1,0 +1,155 @@
+{
+ "schema": "ds41-quality-gate-summary-v1",
+ "date": "2026-10-18",
+ "suite": "quick-3",
+ "mode": "quick",
+ "declared_class": "N",
+ "verdict": "FAIL",
+ "failed": [
+  "c1_submit_score",
+  "p1_session"
+ ],
+ "gaps": [
+  "provisional profile(s) gate-v41 (not the final serving config)",
+  "fidelity_gold (required for class N)"
+ ],
+ "engine": "the measured service build (same sources as this repo, engine commit 29cf61fa)",
+ "profile": {
+  "max_context": 8192,
+  "expert_slots": 1400,
+  "host_gib": 12,
+  "note": "a smaller cache configuration than the service; cache sizes do not change outputs"
+ },
+ "checks": {
+  "protocol": {
+   "title": "Backend protocol suite on ds41d replay (CPU): cardinality, stop/usage, cancel, backpressure, finite logprobs",
+   "status": "PASS",
+   "summary": "12/12 protocol tests pass"
+  },
+  "ref_smoke": {
+   "title": "Official reference rows, same (decode) mode: bitwise",
+   "status": "INFO",
+   "summary": "4 positions vs official reference (decode mode): 258560 differing logits (first row 2, 2 rows), max KL 0.0329"
+  },
+  "ref_chat64": {
+   "title": "Official reference, 48-token chat + 16 greedy, same (decode) mode: bitwise + served greedy",
+   "status": "INFO",
+   "summary": "64 positions vs official reference (decode mode): 8144632 differing logits (first row 1, 63 rows), max KL 0.513; served greedy 16 tokens DIFFER ([5, 1730, 260, 105668, 10900, 9662, 49902, 260, 47854, 271, 2581, 5922, 19685, 260, 4031, 10175] vs [5, 1730, 260, 105668, 10900, 9662, 49902, 260, 47854, 271, 43, 5922, 4961, 1407, 260, 15360])"
+  },
+  "x1_greedy": {
+   "title": "X1 greedy no-draft: determinism (2 runs/start)",
+   "status": "PASS",
+   "summary": "2 prompts x 24 tokens x 2 repeats: deterministic"
+  },
+  "c1_submit_score": {
+   "title": "Serving path (submit) == teacher-forced score: bitwise",
+   "status": "FAIL",
+   "summary": "2 prompts / 48 generated positions: submit logprobs DIFFER from score(verify) in 2"
+  },
+  "x2_verify": {
+   "title": "X2 teacher-forced verify path: determinism",
+   "status": "PASS",
+   "summary": "1 sequences / 96 teacher-forced verify rows (widths ['w1'])"
+  },
+  "x2w_width": {
+   "title": "Verify width 2..6 == width 1 (batch invariance; prerequisite of X4)",
+   "status": "PASS",
+   "summary": "widths [2, 6] vs width 1 on 32 tokens: bit-identical"
+  },
+  "x2c_causal": {
+   "title": "Verify-chunk causality: rows < k independent of candidates k..5 (opus-spec R3)",
+   "status": "PASS",
+   "summary": "width 6, 10 later-row variants (k=1..5, replace/permute): rows < k bit-identical; routes/HC not exposed by engine (logits only)"
+  },
+  "x3_prefill": {
+   "title": "X3 prefill path: chunkings == single chunk",
+   "status": "UNSUPPORTED",
+   "summary": "score mode=prefill: engine says: unsupported: cold prefill score is not implemented"
+  },
+  "p1_session": {
+   "title": "Session append (conversation_id) == T=1 decode path (X3b-style)",
+   "status": "FAIL",
+   "summary": "turn-2 append (24 new + 8 generated tokens, conversation_id) DIFFERS from T=1 decode path; prefix reuse observed; cold resubmit differs (expected only if cold prefill uses prefill layout)"
+  },
+  "x4_spec": {
+   "title": "X4 spec decode identity: greedy draft-on == draft-off",
+   "status": "PASS",
+   "summary": "greedy with DSpark (8 drafted) vs without on 1 prompts: bit-identical"
+  },
+  "x5_t1": {
+   "title": "X5 T=1 seeded reproducibility",
+   "status": "PASS",
+   "summary": "T=1 seeded, 1 prompts x 1 seeds: reproducible"
+  },
+  "x1_restart": {
+   "title": "X1 after a server restart == first start",
+   "status": "PASS",
+   "summary": "2 X1 prompts after restart: bit-identical to the first server start"
+  },
+  "ref_greedy": {
+   "title": "Official reference greedy (cross-mode): KL / top-1 / greedy agreement",
+   "status": "INFO",
+   "summary": "vs official greedy (ref prompt in prefill layout, engine in decode layout): full KL mean 0.0147 max 0.0929, top1 0.938, bitwise rows 0/16, greedy prefix agreement 16/16"
+  },
+  "B_x1_greedy": {
+   "title": "vs accepted build: x1_greedy",
+   "status": "INFO",
+   "summary": "4 artifacts vs accepted build: 4 DIFFER"
+  },
+  "B_x2_verify": {
+   "title": "vs accepted build: x2_verify",
+   "status": "INFO",
+   "summary": "1 artifacts vs accepted build: 1 DIFFER"
+  },
+  "B_x5_t1": {
+   "title": "vs accepted build: x5_t1",
+   "status": "INFO",
+   "summary": "2 artifacts vs accepted build: 2 DIFFER"
+  },
+  "B_x8_api": {
+   "title": "vs accepted build: x8_api",
+   "status": "INFO",
+   "summary": "1/5 API responses byte-identical to accepted build"
+  },
+  "B_ref_logits": {
+   "title": "vs accepted build: ref_logits",
+   "status": "INFO",
+   "summary": "1 artifacts vs accepted build: 1 DIFFER"
+  },
+  "B_x3_prefill": {
+   "title": "vs accepted build: x3_prefill",
+   "status": "NO_BASELINE",
+   "summary": "baseline run has no data for this check"
+  },
+  "fidelity_gold": {
+   "title": "Fidelity vs gold (QUALITY sec. 4) judged vs frozen floor",
+   "status": "SKIP",
+   "summary": "gold not available: agentic"
+  },
+  "tasks": {
+   "title": "Task smoke via glm-api (GSM8K, HumanEval, tool calls, needle)",
+   "status": "PASS",
+   "summary": "toolcall: 1.0 (min 0.5), 2/2 ok, malformed tool args 0; gsm8k: 1.0 (glm-eval's last-line scorer: 0.5) (min 0.5), 2/2 ok, malformed tool args 0; humaneval: 1.0 (min 0.25), 1/1 ok, malformed tool args 0"
+  },
+  "B_task_paired": {
+   "title": "QUALITY 6 paired task gates vs the accepted build (per item, mean over seeds)",
+   "status": "PASS",
+   "summary": "toolcall: 0 case(s) passed on base, fails in every candidate seed; gsm8k: diff +0.00 pp (95% lo +0.00; limits -2.0/-1.0), 2 items x 1 seeds; humaneval: diff +0.00 pp (95% lo +0.00; limits -3.0/-1.5), 1 items x 1 seeds"
+  },
+  "r3_native": {
+   "title": "R3 native (sol-hotpath receipt): rows < k logits + per-layer HC/routes bytes independent of candidates k..5, widths 1..6",
+   "status": "MISSING",
+   "summary": "no receipt bound to this build (r3_native-42ff66eeb2-4aa2bdfdd4: component bytes differ: libds41_moe.so, libds41_spark.so, libengine_ops.so; r3_native-73d5fcc69b-8886d8b7be: component bytes differ: libds41_moe.so, libds41_spark.so, libengine_ops.so; r3_native-ca846ac1cc-fd471b338c: component bytes differ: libds41_moe.so, libds41_spark.so, libengine_ops.so)"
+  },
+  "s_sampler": {
+   "title": "QUALITY sec. 5 S1-S4 sampler/acceptance/admission (sol-spark receipt bound to this build)",
+   "status": "MISSING",
+   "summary": "no receipt bound to this build"
+  },
+  "x9_routes": {
+   "title": "X9 routing invariants: expert ids/weights independent of residency and IO order (receipt)",
+   "status": "MISSING",
+   "summary": "no receipt bound to this build"
+  }
+ }
+}

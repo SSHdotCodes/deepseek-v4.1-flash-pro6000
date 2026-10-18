@@ -70,7 +70,7 @@ Run against the checkpoint directory and Engram library of the measured service,
 | auxiliary | 0.2 | 0.2 |
 | total, with the final checksums | 356.2 | 7.6 |
 
-The Engram library this repo builds differs from the measured service's in one string: the source path an `assert` names, which `scripts/build.sh` maps to a path relative to the repo so the library has the same bytes wherever the repo is cloned. Its `auxiliary.json` therefore differs from the one above in the Engram entry (and in the paths, on another machine). The engine built from this repo returned the same tokens as the measured service on every benchmark request ([benchmarks](benchmarks.md#source-build)).
+The Engram library this repo builds has the same code as the measured service's, but its bytes record the source path (in an `assert` message and in nvcc's names for anonymous namespaces), so they depend on where the repo is cloned. `scripts/build.sh` binds `auxiliary.json` to the library it built; that entry, and the paths on another machine, are where your `auxiliary.json` differs from the one above. The engine built from this repo returned the same tokens as the measured service on every benchmark request ([benchmarks](benchmarks.md#source-build)).
 
 ## Provenance
 

@@ -1,0 +1,219 @@
+{
+ "schema": "ds41-bench-v1",
+ "date": "2026-10-18",
+ "note": "Same build and machine, \"gds\": false (NVMe reads through pinned host buffers).",
+ "host_gib": 104,
+ "gds": false,
+ "environment": {
+  "DS41_DENSE_REFERENCE": "1",
+  "DS41_MOE_CHUNK_UPLOAD": "1",
+  "DS41_MOE_IO_CHUNK_KB": "2048",
+  "DS41_MOE_DECAY256": "1",
+  "DS41_MOE_DRIFT_0_50": "1",
+  "DS41_MOE_TOKEN_MAJOR_WIDTH1": "1",
+  "DS41_MOE_FAST_MINIMA": "1",
+  "DS41_MOE_DEMOTE": "1",
+  "DS41_SPARK_STOP_Q": "0.65",
+  "DS41_SPARK_STOP_MODEL": "-2.049,2.987,-0.488,0.85,-0.063",
+  "DS41_SPARK_STOP_SCALE": "1,1.05,1.42,1.79,2.16",
+  "DS41_LOOKAHEAD_K": "4",
+  "DS41_LOOKAHEAD_N": "2",
+  "DS41_SPARK_APPEND_RESTORE": "1",
+  "DS41_PREFILL_CHUNK_FIT": "1"
+ },
+ "summary": {
+  "decode_tok_s_mean": 30.792,
+  "per_seed": {
+   "21": 30.309,
+   "22": 31.275
+  },
+  "tokens_vs_reference": {
+   "compared": 14,
+   "identical": 14
+  }
+ },
+ "runs": [
+  {
+   "seed": 21,
+   "load_s": 37.4,
+   "cases": [
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 64,
+     "ttft_s": 14.335,
+     "decode_tok_s": 21.107,
+     "tokens_sha256": "bc8216a1a45cc6dddaac3e66b9e3a749e30cbea98360fe0a28831594eea094b0",
+     "draft_acceptance": 0.8095238095238095,
+     "expert_host_hits": 2010,
+     "expert_nvme_misses": 952,
+     "warmup": true
+    },
+    {
+     "id": "chat-000",
+     "prompt_tokens": 74,
+     "generated": 256,
+     "ttft_s": 2.149,
+     "decode_tok_s": 27.517,
+     "tokens_sha256": "c60f3e98c40f8064dd055ee1bcf2e2285c611d724ab11fcf701493a1f03b853f",
+     "draft_acceptance": 0.8695652173913043,
+     "expert_host_hits": 5843,
+     "expert_nvme_misses": 2316,
+     "warmup": false
+    },
+    {
+     "id": "agentic-000",
+     "prompt_tokens": 7999,
+     "generated": 223,
+     "ttft_s": 13.563,
+     "decode_tok_s": 30.038,
+     "tokens_sha256": "1971de61cf435ae02604c83470dbe088a42d3bcbd8d08d4ba102a16659cdad39",
+     "draft_acceptance": 0.9183673469387755,
+     "expert_host_hits": 7198,
+     "expert_nvme_misses": 1671,
+     "warmup": false
+    },
+    {
+     "id": "mt-000-followup-english",
+     "prompt_tokens": 2335,
+     "generated": 256,
+     "ttft_s": 9.443,
+     "decode_tok_s": 26.406,
+     "tokens_sha256": "a9bf53789109f44ebb613f2d7d188b10eda192519a71a18e64ffe69a28dcc1c0",
+     "draft_acceptance": 0.8602941176470589,
+     "expert_host_hits": 7705,
+     "expert_nvme_misses": 2016,
+     "warmup": false
+    },
+    {
+     "id": "chat-001",
+     "prompt_tokens": 73,
+     "generated": 256,
+     "ttft_s": 2.142,
+     "decode_tok_s": 33.38,
+     "tokens_sha256": "6f6d7e0ff899bbbfb4c45f8b2d71b5d73d7372da50f7af1a394b951e2ed5b442",
+     "draft_acceptance": 0.8837209302325582,
+     "expert_host_hits": 6367,
+     "expert_nvme_misses": 1255,
+     "warmup": false
+    },
+    {
+     "id": "chat-002",
+     "prompt_tokens": 77,
+     "generated": 256,
+     "ttft_s": 1.99,
+     "decode_tok_s": 37.639,
+     "tokens_sha256": "9340ca74c09611086e1d149d0094e2c4a4c439897f9f1f4662114361c6e81583",
+     "draft_acceptance": 0.8918918918918919,
+     "expert_host_hits": 5450,
+     "expert_nvme_misses": 891,
+     "warmup": false
+    },
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 256,
+     "ttft_s": 13.255,
+     "decode_tok_s": 26.875,
+     "tokens_sha256": "de75d697b2e703e9383eed1ea26c9841dcd69aa5edb7a82dfc46d76f6ece42c0",
+     "draft_acceptance": 0.8214285714285714,
+     "expert_host_hits": 8433,
+     "expert_nvme_misses": 2122,
+     "warmup": false
+    }
+   ],
+   "decode_tok_s_mean": 30.309
+  },
+  {
+   "seed": 22,
+   "load_s": 38.2,
+   "cases": [
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 64,
+     "ttft_s": 14.254,
+     "decode_tok_s": 23.706,
+     "tokens_sha256": "5d24841c958dca8e05ebe559b8e24f89df0f7f16f37605956293bdb7770bc07a",
+     "draft_acceptance": 0.8717948717948718,
+     "expert_host_hits": 1681,
+     "expert_nvme_misses": 826,
+     "warmup": true
+    },
+    {
+     "id": "chat-000",
+     "prompt_tokens": 74,
+     "generated": 256,
+     "ttft_s": 2.145,
+     "decode_tok_s": 27.525,
+     "tokens_sha256": "cf1ea3ba19f2c572c7b689c5c34e040d531000de1cbd500da41ed7c32b462a1a",
+     "draft_acceptance": 0.8955223880597015,
+     "expert_host_hits": 6405,
+     "expert_nvme_misses": 2413,
+     "warmup": false
+    },
+    {
+     "id": "agentic-000",
+     "prompt_tokens": 7999,
+     "generated": 256,
+     "ttft_s": 13.575,
+     "decode_tok_s": 34.732,
+     "tokens_sha256": "88ab977b46d3043bfd88e4d9fb32c6addc0abf2977d289bf274c30388f910638",
+     "draft_acceptance": 0.828125,
+     "expert_host_hits": 5859,
+     "expert_nvme_misses": 994,
+     "warmup": false
+    },
+    {
+     "id": "mt-000-followup-english",
+     "prompt_tokens": 2335,
+     "generated": 256,
+     "ttft_s": 9.28,
+     "decode_tok_s": 29.552,
+     "tokens_sha256": "83b702578068297951557a96ca4df9edd8534dda1846073d2e8ff3dda74f116a",
+     "draft_acceptance": 0.9121621621621622,
+     "expert_host_hits": 8042,
+     "expert_nvme_misses": 1699,
+     "warmup": false
+    },
+    {
+     "id": "chat-001",
+     "prompt_tokens": 73,
+     "generated": 256,
+     "ttft_s": 2.267,
+     "decode_tok_s": 31.998,
+     "tokens_sha256": "d7d5625e2e85d85a041ad2d2728c6d240a20d04459ce1e7478d231fd2ef2bb97",
+     "draft_acceptance": 0.8292682926829268,
+     "expert_host_hits": 6339,
+     "expert_nvme_misses": 1426,
+     "warmup": false
+    },
+    {
+     "id": "chat-002",
+     "prompt_tokens": 77,
+     "generated": 256,
+     "ttft_s": 2.065,
+     "decode_tok_s": 35.405,
+     "tokens_sha256": "11912b8e87b9710aea6976c87e0f1ddd30af3414839b2aec5fb69f5d7890f12b",
+     "draft_acceptance": 0.8347826086956521,
+     "expert_host_hits": 6084,
+     "expert_nvme_misses": 974,
+     "warmup": false
+    },
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 256,
+     "ttft_s": 13.238,
+     "decode_tok_s": 28.439,
+     "tokens_sha256": "aa7676fd06d96b14231ae69f05102152febe799744c9bb8fe75453fe95cd124d",
+     "draft_acceptance": 0.9125,
+     "expert_host_hits": 7794,
+     "expert_nvme_misses": 2035,
+     "warmup": false
+    }
+   ],
+   "decode_tok_s_mean": 31.275
+  }
+ ]
+}

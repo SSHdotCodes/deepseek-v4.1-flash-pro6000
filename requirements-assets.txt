@@ -1,10 +1,8 @@
-# Qualified interpreter: CPython 3.12.3, Linux x86_64.
-# Original Torch distribution metadata is 2.14.0; torch.__version__ is
-# 2.14.0+cu130. The CUDA 13.0 wheel index is required for CUDA RoPE bits.
+# .venv-assets: scripts/prepare_assets.py (CPython 3.12, Linux x86_64; the reference assets used 3.12.3).
+# torch 2.14.0+cu130 comes from the PyTorch CUDA 13.0 index, everything else from PyPI. This is the exact
+# closure of the environment that produced the reference assets; ml-dtypes is a TileLang dependency the
+# export never imports.
 --extra-index-url https://download.pytorch.org/whl/cu130
-# Runtime closure captured from the original ai venv plus ref/deps overrides.
-# Z3 pin is the imported binary version, not the stale extra dist-info entry.
-# ml-dtypes is a declared TileLang dependency, unused by asset generation.
 annotated-doc==0.0.5
 anyio==4.15.1
 apache-tvm-ffi==0.1.11

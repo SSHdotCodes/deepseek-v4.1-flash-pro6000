@@ -23,6 +23,8 @@ PLACEMENT = ROOT / 'profiles/p80-mtp48.placement'
 EXPERT_SLOTS = 4452
 # The measured host RAM tier. More RAM lowers NVMe reads (96 -> 104 GiB: +3.3% decode); larger tiers are untested.
 MAX_HOST_GIB = 104
+# The placement seeds 5,480 experts into the RAM tier (95.99 GiB), so the tier needs at least 96 GiB.
+MIN_HOST_GIB = 96
 # RAM left to the OS, the API and page cache next to the pinned tier.
 RESERVE_GIB = 16
 
@@ -94,8 +96,8 @@ def configuration():
         raise ValueError('unit must contain only letters, digits, underscores or hyphens')
     if not isinstance(cfg['port'], int) or not 1024 <= cfg['port'] <= 65535:
         raise ValueError('port must be an unprivileged port number')
-    if cfg['host_gib'] != 'auto' and not (isinstance(cfg['host_gib'], int) and 32 <= cfg['host_gib']):
-        raise ValueError('host_gib must be "auto" or an integer of at least 32')
+    if cfg['host_gib'] != 'auto' and not (isinstance(cfg['host_gib'], int) and MIN_HOST_GIB <= cfg['host_gib']):
+        raise ValueError(f'host_gib must be "auto" or an integer of at least {MIN_HOST_GIB}')
     if cfg['gds'] not in ('auto', True, False):
         raise ValueError('gds must be "auto", true or false')
     if not (isinstance(cfg['max_context'], int) and 4096 <= cfg['max_context'] <= 1048576):
@@ -113,8 +115,12 @@ def host_gib(cfg):
     return min(MAX_HOST_GIB, math.floor(meminfo()['MemTotal'] / GIB) - RESERVE_GIB)
 
 
+def cuda_home():
+    return Path(os.environ.get('CUDA_HOME', '/usr/local/cuda-13.4'))
+
+
 def cuda_lib():
-    return Path(os.environ.get('CUDA_HOME', '/usr/local/cuda-13.4')) / 'targets/x86_64-linux/lib'
+    return cuda_home() / 'targets/x86_64-linux/lib'
 
 
 def p2p_enabled():
@@ -207,8 +213,9 @@ def preflight(cfg):
     if int(gpu[0].split(',')[2]) > 2048:
         raise RuntimeError('The GPU is in use; stop other GPU processes (the profile needs nearly all 96 GB)')
     tier, mem = host_gib(cfg), meminfo()
-    if tier < 32:
-        raise RuntimeError('Need at least 48 GiB of RAM for the pinned expert tier (128 GB measured)')
+    if tier < MIN_HOST_GIB:
+        raise RuntimeError(f'The expert placement needs a RAM tier of at least {MIN_HOST_GIB} GiB '
+                           f'(this machine allows {tier}): 128 GB of RAM is the minimum')
     if mem['MemAvailable'] < (tier + 4) * GIB:
         raise RuntimeError(f'Need {tier + 4} GiB available RAM for a {tier} GiB pinned expert tier; '
                            f'{mem["MemAvailable"] / GIB:.1f} GiB is available')
@@ -319,6 +326,7 @@ def main():
         subprocess.run(['systemd-run', '--user', '--collect', '--unit', cfg['unit'],
                         f'--property=MemoryMax={limit}G', '--property=MemorySwapMax=0',
                         '--property=KillMode=control-group', '--property=TimeoutStopSec=60',
+                        f'--setenv=CUDA_HOME={cuda_home()}',
                         '--', sys.executable, str(Path(__file__).resolve()), 'serve'], check=True)
         wait_ready(cfg)
     elif args.action == 'serve':

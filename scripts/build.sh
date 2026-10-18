@@ -35,7 +35,8 @@ NVCC="$CUDA_HOME/bin/nvcc"
 CUDART="$(realpath "$CUDA_HOME/targets/x86_64-linux/lib/libcudart.so.13")"
 echo "7fb00519a24512bf677b59e87921e5c05aac8246ceb6a57435c0d9dfeef364f6  $CUDART" | sha256sum -c --quiet - || {
   echo "build.sh: $CUDART is not CUDA 13.4.0's cudart (13.4.92); install the 13.4.0 toolkit" >&2; exit 2; }
-PYTHON="${PYTHON:-python3}"
+# The API venv from scripts/setup.sh has pip, which fetches the two pinned wheels.
+PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 DEPS="$BUILD/deps"; COMP="$BUILD/components"; DIST="$BUILD/dist"
 mkdir -p "$DEPS" "$COMP" "$DIST"
 step() { printf '\n== %s\n' "$*"; }
@@ -68,8 +69,9 @@ fi
 
 # 2. Components, installed into one prefix (lib/ + include/).
 # The dense/Engram libraries were built without a CMake build type (no -DNDEBUG); keep that to reproduce them.
-# Their assert strings name source files: map the checkout path away so the Engram library, which
-# auxiliary.json authenticates by SHA-256, has the same bytes wherever the repo is cloned.
+# Their assert messages name source files: keep the checkout path out of them. (nvcc still derives
+# anonymous-namespace symbol names from the source path, so the Engram library's bytes, which auxiliary.json
+# authenticates, depend on where the repo is cloned; step 3 binds the library actually built.)
 PREFIX_MAP="-ffile-prefix-map=$ROOT/="
 for c in moe dense spark-policy fuse-head; do
   step "component $c"
@@ -84,19 +86,12 @@ step "component attn"
 TILELANG_DIR="$DEPS/tilelang" OUT_DIR="$COMP" NVCC="$NVCC" "$ROOT/components/attn/build.sh"
 
 # 3. Engine assets. auxiliary.json binds the checkpoint files, the generated assets and the Engram library
-# built above; the first run hashes all 510 GB of shards (about 6 minutes from a PCIe 5.0 drive), later runs
-# reuse that receipt after checking each shard's size and mtime.
+# built above. The first run hashes all 510 GB of shards (about 6 minutes from a PCIe 5.0 drive); later runs
+# rehash only shards whose device, inode, size, mtime or ctime changed (a moved checkpoint is hashed again),
+# and take about 10 seconds.
 ENGRAM="$COMP/lib/libds41_engram.so"
-bound="$("$PYTHON" -c 'import json,sys
-try: d=json.load(open(sys.argv[1]))
-except OSError: print(""); raise SystemExit
-print(d["weight_root"], d["files"]["engram_library"]["sha256"])' "$ASSETS/auxiliary.json")"
-if [[ "$bound" != "$WEIGHTS $(sha256sum "$ENGRAM" | cut -d' ' -f1)" ]]; then
-  step "engine assets $ASSETS"
-  reuse=(); [[ -f "$ASSETS/full-integrity.json" ]] && reuse=(--skip-integrity)
-  "$ASSET_PYTHON" "$ROOT/scripts/prepare_assets.py" --weights "$WEIGHTS" --out "$ASSETS" \
-    --engram-library "$ENGRAM" "${reuse[@]}"
-fi
+step "engine assets $ASSETS"
+"$ASSET_PYTHON" "$ROOT/scripts/prepare_assets.py" --weights "$WEIGHTS" --out "$ASSETS" --engram-library "$ENGRAM"
 
 # 4. Engine (DSpark drafter and policy sidecar on, MoE source API 4, pinned cuBLAS pair).
 step "engine"

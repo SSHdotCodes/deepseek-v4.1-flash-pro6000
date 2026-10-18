@@ -4,7 +4,7 @@
 Checks: health and model list; OpenAI chat with and without streaming, reasoning split out, reasoning effort,
 a tool call and a tool round trip; Anthropic Messages with streaming, a tool call and count_tokens; OpenAI
 Responses. Then times cold prompts of about 2K, 8K and 32K tokens (fresh text each, so nothing is reused) and a
-follow-up turn on the 8K conversation (prefix reuse), with thinking off and 64 output tokens.
+follow-up turn on the 8K conversation (prefix reuse), with thinking off and up to 64 output tokens.
 
   .venv/bin/python scripts/api_check.py [--base http://127.0.0.1:18087] [--out results/api-check.json]
 """
@@ -133,7 +133,8 @@ def main():
         return final[:120]
 
     def anthropic():
-        body = {'model': MODEL, 'max_tokens': 1024, 'messages': question, **SAMPLING}
+        body = {'model': MODEL, 'max_tokens': 4096, 'messages': question, **SAMPLING,
+                'thinking': {'type': 'enabled', 'budget_tokens': 4096}}
         r = c.client.post(f'{c.base}/v1/messages', json=body)
         r.raise_for_status()
         d = r.json()
@@ -180,48 +181,55 @@ def main():
         c.check(name, fn)
 
     if not args.skip_timing:
-        text = corpus()
-        offset = 0
+        text, offset = corpus(), 0
 
-        def cold(chars):
+        def tokens(doc):
+            r = c.client.post(f'{c.base}/v1/messages/count_tokens', json={'model': MODEL, 'messages': [
+                {'role': 'user', 'content': f'Summarize what this code does in three sentences.\n\n{doc}'}]})
+            r.raise_for_status()
+            return r.json()['input_tokens']
+
+        def prompt(target):
+            """A fresh slice of the corpus (never reused) sized to about `target` prompt tokens."""
             nonlocal offset
-            # each prompt uses a different slice, so no earlier prefix can be reused
+            chars = target * 3
+            for _ in range(3):
+                chars = int(chars * target / tokens(text[offset:offset + chars]))
             doc, offset = text[offset:offset + chars], offset + chars
-            messages = [{'role': 'user', 'content': f'Summarize what this code does in three sentences.\n\n{doc}'}]
+            return [{'role': 'user', 'content': f'Summarize what this code does in three sentences.\n\n{doc}'}]
+
+        def timed(messages):
             first, events = c.stream('/v1/chat/completions', {
                 'model': MODEL, 'messages': messages, **SAMPLING, 'max_tokens': 64, 'thinking': False,
                 'stream': True, 'stream_options': {'include_usage': True}})
             usage = events[-1]['usage']
             reply = ''.join((ch.get('delta') or {}).get('content') or '' for e in events for ch in e.get('choices', []))
             timing = usage.get('ds41_timing', {})
-            detail = {'prompt_tokens': usage['prompt_tokens'], 'ttft_s': round(first, 2),
-                      'prefill_tok_s': round(usage['prompt_tokens'] / (timing['prefill_ms'] / 1000), 1),
-                      'decode_tok_s': timing.get('decode_tok_s')}
-            return messages, reply, detail
+            return reply, {'prompt_tokens': usage['prompt_tokens'],
+                           'cached_tokens': (usage.get('prompt_tokens_details') or {}).get('cached_tokens'),
+                           'ttft_s': round(first, 2),
+                           'prefill_tok_s': round(usage['prompt_tokens'] / (timing['prefill_ms'] / 1000), 1),
+                           'decode_tok_s': timing.get('decode_tok_s')}
 
+        c.check('cold prompt ~2K', lambda: timed(prompt(2048))[1])
         state = {}
 
-        def run_cold(chars, label):
-            messages, reply, detail = cold(chars)
-            state[label] = (messages, reply)
+        def cold_8k():
+            state['messages'] = prompt(8192)
+            state['reply'], detail = timed(state['messages'])
+            state['tokens'] = detail['prompt_tokens']
             return detail
-
-        c.check('cold prompt ~2K', lambda: run_cold(6_500, '2k'))
-        c.check('cold prompt ~8K', lambda: run_cold(26_000, '8k'))
-        c.check('cold prompt ~32K', lambda: run_cold(104_000, '32k'))
+        c.check('cold prompt ~8K', cold_8k)
 
         def follow_up():
-            messages, reply = state['8k']
-            messages = messages + [{'role': 'assistant', 'content': reply},
-                                   {'role': 'user', 'content': 'Now name the two most important functions.'}]
-            first, events = c.stream('/v1/chat/completions', {
-                'model': MODEL, 'messages': messages, **SAMPLING, 'max_tokens': 64, 'thinking': False,
-                'stream': True, 'stream_options': {'include_usage': True}})
-            usage = events[-1]['usage']
-            return {'prompt_tokens': usage['prompt_tokens'],
-                    'cached_tokens': usage.get('prompt_tokens_details', {}).get('cached_tokens'),
-                    'ttft_s': round(first, 2)}
+            # the engine keeps the latest conversation, so this reuses the 8K prompt and its answer
+            messages = state['messages'] + [{'role': 'assistant', 'content': state['reply']},
+                                            {'role': 'user', 'content': 'Now name the two most important functions.'}]
+            detail = timed(messages)[1]
+            assert detail['cached_tokens'] and detail['cached_tokens'] > 0.9 * state['tokens'], detail
+            return detail
         c.check('follow-up on 8K (reuse)', follow_up)
+        c.check('cold prompt ~32K', lambda: timed(prompt(32768))[1])
 
     failed = [r['check'] for r in c.results if not r['ok']]
     if args.out:

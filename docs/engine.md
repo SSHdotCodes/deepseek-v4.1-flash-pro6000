@@ -44,20 +44,24 @@ The step is transfer-bound: the GPU is busy for about 22 ms of an 80 ms verify s
 
 - **Batched prefill.** 256 rows per dense and attention launch, 8 rows per FP8 projection launch. Experts for a chunk are read once for all of its rows.
 - **Segments.** Long prompts split into segments that fit the VRAM the expert cache leaves free, so the 4,452 slots never shrink for a prompt. A 32K-token prompt prefills in about 29 seconds.
-- **Prefix reuse.** A request that extends any earlier conversation (`--prefix-cache --prefix-any-conversation`) prefills only its new tokens: a follow-up turn on an 8K conversation starts answering in 0.7 s.
+- **Prefix reuse.** The engine keeps the state of the latest conversation. A request that extends it, whatever its conversation ID (`--prefix-cache --prefix-any-conversation`), prefills only its new tokens: a follow-up turn on an 8K conversation starts answering in 0.7 s.
 - **Warm RAM.** After a prompt of 256+ tokens, the experts its last 256 rows routed to are read from NVMe into RAM (up to 16 GiB), so the answer starts with them close.
 - **Drafter restore.** After a long appended turn, the drafter restarts from the last 128 rows of the append.
 
 ## Quality
 
-The target computes in the checkpoint's own formats: MXFP4 experts, FP8 dense weights, BF16 head. Nothing is requantized.
+The target computes in the checkpoint's own formats: MXFP4 experts, FP8 dense weights, BF16 head. Nothing is requantized. It is not bit-identical to DeepSeek's reference implementation: batched prefill and the compact FP8 `wo_a` kernel add in a different order, which shifts logits slightly and occasionally flips an MoE route. The official reference differs from itself between its prefill and decode layouts by about the same amount.
 
-- **Against DeepSeek's reference implementation**, greedy decoding agreed on 16 of 16 prompts, with a mean KL divergence of 0.015 per position.
-- **The differences come from summation order.** Batched prefill and the compact FP8 `wo_a` kernel add in a different order from the reference, which occasionally flips an MoE route (KL of about 0.01 to 0.04 on affected positions). The official reference differs from itself between its prefill and decode layouts by the same amount.
-- **Speculative decoding** is exact: see *Accept* above.
-- **Fused LM head.** `libds41_fuse_head` computes the BF16 head bit for bit like the pinned cuBLAS head.
+The project's quality gate on the measured build ([`benchmarks/quality-gate-20261018.json`](../benchmarks/quality-gate-20261018.json); run with smaller caches, which do not change outputs):
 
-`--allow-unqualified` is a guard left over from the engine's first native-forward milestone: it refused to serve until full-model checks existed. Every installed version has since passed a quality gate: the comparison with the reference above, draft widths 1 to 6 with rollback, causality, restart and determinism checks, and task checks. The flag only acknowledges that gate.
+- **Against the reference.** A 16-token greedy continuation agreed with the reference at all 16 positions, with a mean per-position KL divergence of 0.015 (max 0.093). On a 64-position chat the largest KL was 0.51, and the greedy continuation diverged from the reference's after 10 tokens.
+- **Exactness of the serving machinery.** Bit for bit: verify widths 2 and 6 against width 1; earlier rows unaffected by later draft rows (causality); greedy output with and without DSpark drafting; repeated runs, seeded T=1 runs and runs after a restart.
+- **Recorded as failures, by design.** The served path's log-probabilities differ from teacher-forced scoring at 2 of 48 positions, and an appended turn differs from pure decoding. Both compare batched prefill with one-row decode, which sum in different orders.
+- **Tasks.** Tool calls, GSM8K and HumanEval samples pass. That is a smoke test, not an accuracy evaluation.
+
+Speculative decoding is exact: see *Accept* above. The fused LM head (`libds41_fuse_head`) computes the BF16 head bit for bit like the pinned cuBLAS head.
+
+`--allow-unqualified` overrides a guard from the engine's first native-forward milestone, which refuses to serve until a full-model "gold" fidelity check is recorded. That check needs reference outputs the project does not have for agentic prompts (`fidelity_gold: SKIP` in the gate summary), so the measured service runs with the flag, as does this repo.
 
 ## How the speed was found
 
@@ -97,4 +101,4 @@ Each tree is extracted unchanged from the commit named in `sources.lock.json`, a
 
 - `ds41d`, `libengine_ops`, `libds41_spark`, `libds41_spark_policy_v2`, `libds41_moe`, `libds41_dense`, `libds41_attn`, `libds41_fuse_head`: identical.
 - `libds41_fuse_head_half` and `_tune`: identical code; the files differ in the source paths that `-lineinfo` records.
-- `libds41_engram`: identical code. Its one difference is an `assert` message naming a source path, which the build maps to a repo-relative path so the bytes don't depend on where the repo is cloned (`auxiliary.json` authenticates this library by SHA-256).
+- `libds41_engram`: identical code. Its bytes differ where the source path is recorded: in an `assert` message (the build makes it repo-relative) and in the symbol names nvcc gives anonymous namespaces. `auxiliary.json` authenticates this library by SHA-256, so `scripts/build.sh` binds the assets to the library it built.
