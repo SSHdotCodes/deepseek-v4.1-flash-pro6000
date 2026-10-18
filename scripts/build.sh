@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build ds41d and every component from source into build/dist, the runtime directory scripts/run.py uses.
 #   scripts/build.sh [--weights DIR] [--assets DIR] [--build DIR] [--jobs N]
+# (defaults: "weights", "assets" and "build" in config.local.json or config.example.json)
 # Order: pinned wheels -> components -> engine assets (scripts/prepare_assets.py, bound to the Engram library
 # built here) -> engine -> engine tests -> build/dist. The engine compiles in the digest of auxiliary.json, so
 # moving the weights or the assets directory means running this script again.
@@ -8,18 +9,20 @@
 # the .venv-assets environment from scripts/setup.sh.
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-WEIGHTS="$ROOT/models/DeepSeek-V4.1-Flash-1017"; ASSETS="$ROOT/generated"; BUILD="$ROOT/build"; JOBS="$(nproc)"
+# Defaults come from config.example.json and config.local.json, as for scripts/run.py.
+mapfile -t paths < <(python3 "$ROOT/scripts/run.py" paths)
+WEIGHTS="${paths[0]}"; ASSETS="${paths[1]}"; BUILD="${paths[2]}"; JOBS="$(nproc)"
 while (( $# )); do
   case "$1" in
     --weights) WEIGHTS="$2"; shift 2;;
     --assets) ASSETS="$2"; shift 2;;
     --build) BUILD="$2"; shift 2;;
     --jobs) JOBS="$2"; shift 2;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0;;
     *) echo "build.sh: unknown argument $1" >&2; exit 2;;
   esac
 done
-WEIGHTS="$(realpath "$WEIGHTS")"; ASSETS="$(realpath -m "$ASSETS")"; BUILD="$(realpath -m "$BUILD")"
+WEIGHTS="$(realpath -m "$WEIGHTS")"; ASSETS="$(realpath -m "$ASSETS")"; BUILD="$(realpath -m "$BUILD")"
 [[ -f "$WEIGHTS/model.safetensors.index.json" ]] || {
   echo "build.sh: no checkpoint at $WEIGHTS; run scripts/download.py or pass --weights" >&2; exit 2; }
 ASSET_PYTHON="${ASSET_PYTHON:-$ROOT/.venv-assets/bin/python}"

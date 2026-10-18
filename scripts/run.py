@@ -60,8 +60,8 @@ ENGINE_ENV = {
     'DS41_DENSE_REFERENCE': '1',
     # NVMe misses are read in 2 MiB O_DIRECT chunks, each uploaded as soon as it lands
     'DS41_MOE_CHUNK_UPLOAD': '1', 'DS41_MOE_IO_CHUNK_KB': '2048',
-    # expert-cache policy: LFU counts halve every 256 steps, drift-aware admission for width-1 decode,
-    # constant-time eviction minima
+    # expert-cache policy: LFU counts decay every 256 steps, drift-aware admission for width-1 decode,
+    # faster eviction minima
     'DS41_MOE_DECAY256': '1', 'DS41_MOE_DRIFT_0_50': '1', 'DS41_MOE_TOKEN_MAJOR_WIDTH1': '1',
     'DS41_MOE_FAST_MINIMA': '1',
     # an expert evicted from VRAM moves to the RAM tier instead of being dropped
@@ -296,7 +296,7 @@ def wait_ready(cfg):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=['start', 'stop', 'status', 'logs', 'command', 'preflight', 'serve'])
+    p.add_argument('action', choices=['start', 'stop', 'status', 'logs', 'command', 'preflight', 'serve', 'paths'])
     args = p.parse_args()
     cfg = configuration()
     if args.action == 'command':
@@ -307,6 +307,9 @@ def main():
         print(' '.join(f'{k}={shlex.quote(env[k])}' for k in keys))
         print(shlex.join(command(cfg, socket)))
         print(shlex.join(api_command(cfg, socket)))
+    elif args.action == 'paths':
+        # for scripts/build.sh: the configured checkpoint, assets and build directories
+        print('\n'.join((cfg['weights'], cfg['assets'], cfg['build'])))
     elif args.action == 'preflight':
         preflight(cfg)
     elif args.action == 'start':
