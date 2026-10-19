@@ -14,6 +14,8 @@ struct PrefillData {
   Device gate{256*I*2}, up{256*I*2}, act{256*I*2},
       eq{256*I}, es{256*I/32}, down{256*H*2};
   std::array<std::vector<int64_t>,2> rowids;
+  // 1 for rows inside an image span: no Engram contribution, n-grams stop at them, vision routing bias.
+  std::vector<uint8_t> image;
   std::unique_ptr<ds41::HostBuffer> route_host;
   std::unique_ptr<ds41::HostBuffer> descriptors;
   Json layers=Json::array();
@@ -95,6 +97,17 @@ void p_engram_barrier() {
   for(int j=0;j<2;++j)if(!pref->engram_raw[j])
     pref->engram_raw[j]=static_cast<const char*>(pref->engram[j]->wait(pref->rows*24));
   pref->engram_barrier_ms+=clock_ms()-start;
+}
+// Image rows among [first, first+rows) select experts with the vision bias: recompute their biased scores.
+void pimage_router(int l,int64_t first,int rows,const float* router,float* unbiased,float* biased) {
+  auto &pf=*pref;const size_t base=size_t(first-pf.begin);
+  for(int r=0;r<rows;) {
+    if(!pf.image[base+r]){++r;continue;}
+    int e=r;while(e<rows&&pf.image[base+e])++e;
+    CK(ds41_dense_router_scores(router+size_t(r)*384,w("layers."+std::to_string(l)+".ffn.gate.bias_vl").data.as<float>(),
+        unbiased+size_t(r)*384,biased+size_t(r)*384,e-r,384,stream));
+    r=e;
+  }
 }
 void pcopy(void* dst,const void* src,size_t bytes) {
   CK(cudaMemcpyAsync(dst,src,bytes,cudaMemcpyDeviceToDevice,stream));
@@ -340,11 +353,38 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
   std::vector<uint8_t> residency_before;
   try{residency_before=p_residency(*experts);}catch(...){poisoned=true;throw;}
   auto plan=ds41e::prefill::plan(committed,int64_t(input.size()),int64_t(options.logits_tail));
+  // Image rows of this segment. Each image the segment touches is encoded first, before the prefill arena
+  // takes free VRAM; only its aligner rows (10 MB at most) stay allocated until the prefill returns.
+  struct Rows {void* p=nullptr;~Rows(){if(p)cudaFree(p);}};
+  std::vector<std::unique_ptr<Rows>> encoded;
+  std::vector<const void*> image_embed(input.size(),nullptr);
+  std::vector<uint8_t> image_rows(input.size(),0);
+  double vision_ms=0;size_t images_encoded=0;
+  if(options.images)for(const auto &img:*options.images) {
+    const int64_t b=std::max<int64_t>(img.start,committed),e=std::min<int64_t>(img.end(),committed+int64_t(input.size()));
+    if(b>=e)continue;
+    ensure_vision();
+    bool slots=false;
+    for(int64_t pos=b;pos<e&&!slots;++pos)slots=img.kind(pos,nullptr)==1;
+    const char* rows=nullptr;
+    if(slots) {
+      encoded.push_back(std::make_unique<Rows>());
+      encoded.back()->p=vision->encode(img);rows=static_cast<const char*>(encoded.back()->p);
+      vision_ms+=vision->last_ms();++images_encoded;
+    }
+    for(int64_t pos=b;pos<e;++pos) {
+      const size_t r=size_t(pos-committed);int row=0;const int kind=img.kind(pos,&row);
+      if(input[r]!=ImageSpan::token_id)throw std::invalid_argument("image span position without the image token id");
+      image_rows[r]=1;
+      image_embed[r]=kind==1?static_cast<const void*>(rows+size_t(row)*H*2)
+          :image_delimiters.as<char>(size_t(kind==0?0:kind==2?1:2)*H*2);
+    }
+  }
   // Preflight allocations before any live state mutation. No eviction or cache
   // rebuild is used to make room for scratch. A failed allocation is retryable.
   pref=std::make_unique<PrefillData>(input.size(),committed,options.mode==PrefillMode::Cold,
       options.logits_tail,config.prefill_budget_bytes);
-  auto &pf=*pref;pf.dense_batch=int(options.dense_batch_rows);pf.warm=options.warm;
+  auto &pf=*pref;pf.dense_batch=int(options.dense_batch_rows);pf.warm=options.warm;pf.image=std::move(image_rows);
   prefill_chunk.reset();
   if(config.prefill_chunk_rows) {
     // Optional scratch: allocated only beside the live decode cache, otherwise the M1 path runs.
@@ -360,7 +400,7 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
   try {
     in_step=true;graph_ready=false;
     for(size_t r=0;r<input.size();++r) {
-      auto ids=hash.rows(input[r],committed+r);
+      auto ids=hash.rows(input[r],committed+r,!pf.image[r]);
       for(int j=0;j<2;++j)pf.rowids[j].insert(pf.rowids[j].end(),ids[j].begin(),ids[j].end());
     }
     // Both whole-suffix tickets deduplicate globally. They start before layer0
@@ -368,7 +408,7 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
     if(async_engram)for(int j=0;j<2;++j)pf.engram[j]=async_engram->submit(j==0?1:14,pf.rowids[j]);
     // Start I/O before enqueueing prompt-sized embedding work as well.
     for(size_t r=0;r<input.size();++r) {
-      expand_embedding(w("embed.weight").data.as<Bf16>(size_t(input[r])*H*2),h.p,pre.as<float>(),H,stream);
+      expand_embedding(pf.image[r]?image_embed[r]:w("embed.weight").data.as<Bf16>(size_t(input[r])*H*2),h.p,pre.as<float>(),H,stream);
       pcopy(pf.hidden.as<char>(r*HC*H*2),h.p,HC*H*2);
       pcopy(pf.previous_pre.as<char>(r*4*4),pre.p,4*4);
     }
@@ -410,7 +450,7 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
           size_t r=size_t(pos-pf.begin);
           pcopy(h.p,pf.hidden.as<char>(r*HC*H*2),HC*H*2);
           pcopy(pre.p,pf.previous_pre.as<char>(r*4*4),4*4);
-          if(l==1||l==14) {
+          if((l==1||l==14)&&!pf.image[r]) {
             if(raw)pengram(l,raw+size_t(pos-first)*24*264);
             else {auto &all=pf.rowids[l==1?0:1];engram(l,{all.begin()+r*24,all.begin()+(r+1)*24});}
           }
@@ -428,7 +468,7 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
           pcopy(pf.hidden.as<char>(r*HC*H*2),h.p,HC*H*2);
           hc(p,"ffn",ffn_pre);
           CK(ds41_dense_hc_pre(h.p,att_pre.as<float>(),x.p,1,H,stream));norm(p+".ffn_norm",x.p,x.p,H);
-          router_scores(l);
+          router_scores(l,pf.image[r]!=0);
           ds41e::prefill::select_routes(biased.as<float>(),unbiased.as<float>(),pf.ids.as<int>(r*6*4),pf.weights.as<float>(r*6*4),stream);
           pcopy(pf.ffn_input.as<char>(r*H*2),x.p,H*2);
           pcopy(pf.ffn_post.as<char>(r*4*4),post.p,4*4);pcopy(pf.ffn_comb.as<char>(r*16*4),comb.p,16*4);
@@ -496,7 +536,8 @@ PrefillResult prefill(const std::vector<int>& input,const PrefillOptions& option
     prefill_chunk.reset();pref.reset();result.elapsed_ms=clock_ms()-begin_ms;total_ms+=result.elapsed_ms;
     prefill_summary={{"mode",options.mode==PrefillMode::Cold?"cold-full-N-M1-dense-candidate":"append-decode-layout"},
         {"rows",input.size()},{"chunk_rows",options.chunk_rows},{"dense_batch_rows",options.dense_batch_rows},{"batched_chunk_rows",chunk_rows},{"cache_reused_tokens",result.begin_position},
-        {"elapsed_ms",result.elapsed_ms},{"cache_retention_checked",!residency_before.empty()},{"layers",result.layers}};
+        {"elapsed_ms",result.elapsed_ms},{"cache_retention_checked",!residency_before.empty()},{"layers",result.layers},
+        {"images_encoded",images_encoded},{"vision_ms",vision_ms}};
     if(!prefill_warm_counts.empty()) {
       // Residency only (after the tier-membership check): warm RAM with the prompt tail's experts.
       std::vector<std::pair<int,ds41::ExpertId>> order;

@@ -558,6 +558,8 @@ def main() -> None:
     parser.add_argument("--max-queue", type=int, default=64)
     parser.add_argument("--max-tokens-limit", type=int, default=32768,
                         help="hard cap on max_tokens per request (400 above)")
+    parser.add_argument("--no-remote-images", action="store_true",
+                        help="refuse http(s) image URLs (data: URLs and base64 still work)")
     args = parser.parse_args()
 
     if args.host not in ("127.0.0.1", "localhost", "::1") and not args.allow_remote:
@@ -566,7 +568,7 @@ def main() -> None:
         )
 
     if args.tokenizer:
-        encoder = Encoder.from_file(args.tokenizer)
+        encoder = Encoder.from_file(args.tokenizer, allow_remote_images=not args.no_remote_images)
     else:
         print("WARNING: no tokenizer.json path given; using CharTokenizer fallback")
         encoder = Encoder(CharTokenizer())

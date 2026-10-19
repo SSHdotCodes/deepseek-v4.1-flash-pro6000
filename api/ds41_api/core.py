@@ -29,6 +29,7 @@ from .encoder import Encoder
 from .parser import StreamParser
 from .schemas import ChatCompletionRequest
 from .timing import TimingCollector
+from .vision import expand_prompt_async
 
 
 class GenerationError(Exception):
@@ -46,6 +47,10 @@ async def build_submission(
     """Encode the request and submit it; returns (stream, sampling, token_ids)."""
     prompt, images = encoder.build_prompt(request)
     token_ids = encoder.encode_prompt(prompt)
+    prepared = None
+    if images:
+        # Each image placeholder becomes the image's token span; the engine gets the resized pixels.
+        token_ids, prepared = await expand_prompt_async(token_ids, images, encoder.vision)
     eos_id = encoder.token_id(enc.eos_token)
     stop_token_ids = tuple(tid for tid in (eos_id,) if tid is not None)
     sampling = SamplingParams(
@@ -59,7 +64,7 @@ async def build_submission(
     stream = await backend.submit(
         token_ids,
         sampling,
-        images=images or None,
+        images=prepared or None,
         conversation_id=request.conversation_id,
         request_id=request_id or uuid.uuid4().hex,
     )

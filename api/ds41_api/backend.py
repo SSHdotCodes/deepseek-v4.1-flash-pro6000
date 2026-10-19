@@ -154,9 +154,9 @@ def event_from_dict(d: Dict[str, Any]) -> BackendEvent:
 
 @dataclass
 class ImagePayload:
-    """Image passed through to the engine. Exactly one of `data` (raw bytes,
-    base64-encoded on the wire) or `url` is set. The server does no vision
-    preprocessing; the engine owns the image pipeline."""
+    """An image from a request: exactly one of `data` (raw file bytes) or `url`
+    (data: or http(s)). ds41_api.vision turns it into the VisionImage the engine
+    receives (resized pixels plus the span's position and grid)."""
 
     data: Optional[bytes] = None
     url: Optional[str] = None
@@ -214,7 +214,7 @@ class Backend(ABC):
         self,
         token_ids: Sequence[int],
         sampling: SamplingParams,
-        images: Optional[Sequence[ImagePayload]] = None,
+        images: Optional[Sequence[Any]] = None,  # ds41_api.vision.VisionImage
         conversation_id: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> BackendStream: ...

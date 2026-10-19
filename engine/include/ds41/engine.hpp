@@ -60,6 +60,31 @@ struct Config {
   size_t prefill_budget_bytes = size_t(20) << 30;
 };
 enum class PrefillMode { Cold, Append };
+// One image of a prompt, as official inference/image_processor.py lays it out: the API resizes and pads
+// the picture (PIL, like load_image) and sends its RGB bytes, n_vit_h*14 rows of n_vit_w*14 pixels. The
+// prompt holds image_token_id at every position of the span
+//   [IMAGE_START] + ([IMAGE] * n_llm_w + [IMAGE_NEW_LINE]) * n_llm_h + [IMAGE_END]
+// and the IMAGE slots take the aligner rows in reading order.
+struct ImageSpan {
+  static constexpr int token_id = 129264, patch = 14, downsample = 3, max_tokens = 1024;
+  int64_t start = 0; // absolute position of IMAGE_START
+  int n_vit_h = 0, n_vit_w = 0, n_llm_h = 0, n_llm_w = 0;
+  std::vector<uint8_t> pixels;
+  std::string digest; // sha256 of the geometry and pixels: prefix-cache identity
+  int64_t tokens() const { return int64_t(n_llm_h) * (n_llm_w + 1) + 2; }
+  int64_t end() const { return start + tokens(); }
+  // -1 text, 0 IMAGE_START, 1 IMAGE (aligner row in *row), 2 IMAGE_NEW_LINE, 3 IMAGE_END.
+  int kind(int64_t pos, int *row) const {
+    if (pos < start || pos >= end()) return -1;
+    const int64_t i = pos - start;
+    if (i == 0) return 0;
+    if (pos == end() - 1) return 3;
+    const int64_t r = (i - 1) / (n_llm_w + 1), c = (i - 1) % (n_llm_w + 1);
+    if (c == n_llm_w) return 2;
+    if (row) *row = int(r * n_llm_w + c);
+    return 1;
+  }
+};
 struct PrefillOptions {
   PrefillMode mode = PrefillMode::Cold;
   size_t logits_tail = 1;
@@ -67,6 +92,9 @@ struct PrefillOptions {
   size_t chunk_rows = 4096;
   size_t dense_batch_rows = 1; //1..8, fixed-M1 reductions and cuBLAS
   bool warm = true; // allow the configured post-prefill RAM warm (only the final segment of a prompt)
+  // The prompt's images at absolute positions, sorted and disjoint; rows outside [committed, committed+n)
+  // are ignored, so the whole list can be passed with every segment.
+  const std::vector<ImageSpan> *images = nullptr;
 };
 struct PrefillResult {
   int64_t begin_position = 0;

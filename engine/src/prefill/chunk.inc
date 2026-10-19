@@ -169,6 +169,7 @@ void cproject(const ds41e::prefill::Layer& work,int64_t first,int rows,const cha
   pcopy(c.pre.p,pf.previous_pre.as<char>(base*4*4),size_t(rows)*4*4);
   if(l==1||l==14) {
     for(int r=0;r<rows;++r) {
+      if(pf.image[base+r])continue; // image rows pass Engram layers untouched
       pcopy(h.p,c.h.as<char>(size_t(r)*HC*H*2),HC*H*2);
       if(raw)pengram(l,raw+size_t(r)*24*264);
       else {auto &all=pf.rowids[l==1?0:1];size_t i=(base+r)*24;engram(l,{all.begin()+i,all.begin()+i+24});}
@@ -197,6 +198,7 @@ void cproject(const ds41e::prefill::Layer& work,int64_t first,int rows,const cha
   CK(ds41_dense_hc_pre(hq,c.att_pre.as<float>(size_t(qoff)*4*4),c.x.p,qn,H,stream));cnorm(p+".ffn_norm",c.x.p,c.x.p,H,qn);
   bf16_float(c.x.p,c.f32x.as<float>(),qn*H,stream);clinear(p+".ffn.gate",c.f32x.p,c.router.p,384,H,qn);
   CK(ds41_dense_router_scores(c.router.as<float>(),w(p+".ffn.gate.bias").data.as<float>(),c.unbiased.as<float>(),c.biased.as<float>(),qn,384,stream));
+  pimage_router(l,qb,qn,c.router.as<float>(),c.unbiased.as<float>(),c.biased.as<float>());
   const size_t slot=size_t(qb-pf.begin);
   ds41e::prefill::select_routes_rows(c.biased.as<float>(),c.unbiased.as<float>(),pf.ids.as<int>(slot*6*4),pf.weights.as<float>(slot*6*4),qn,stream);
   pcopy(pf.hidden.as<char>(slot*HC*H*2),hq,size_t(qn)*HC*H*2);

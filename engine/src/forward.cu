@@ -17,6 +17,7 @@
 #include "ds41/prefill/plan.hpp"
 #include "ds41/prefill/kernels.cuh"
 #include "ds41/prefill/stager.hpp"
+#include "ds41/vision.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -301,6 +302,10 @@ class Native final : public Forward, public hotpath::GateEvidence {
   std::vector<uint8_t> gate_host;
   std::vector<std::vector<uint8_t>> gate_rows;
   Device rope, woa_scratch;
+  // Image prompts: the vision tower (built at the first image) and the IMAGE_START, IMAGE_NEW_LINE and
+  // IMAGE_END embeddings, in that order.
+  std::unique_ptr<VisionEncoder> vision;
+  Device image_delimiters;
   Device capture_slab{6 * 3 * H * 2};
   int capture_slot = 0, capture_rows = 0, capture_committed = 0;
   int64_t capture_begin = 0;
@@ -1478,13 +1483,30 @@ private:
       linear(p + ".wo_b", wo.p, y.p, H, 8192);
     });
   }
-  void router_scores(int l) {
+  // image: an image-span row, which selects experts with the vision bias (official Gate.bias_vl).
+  void router_scores(int l, bool image = false) {
     std::string p = "layers." + std::to_string(l) + ".ffn";
     bf16_float(x.p, f32.as<float>(), H, stream);
     linear(p + ".gate", f32.p, router.p, 384, H);
     CK(ds41_dense_router_scores(
-        router.as<float>(), w(p + ".gate.bias").data.as<float>(),
+        router.as<float>(), w(p + (image ? ".gate.bias_vl" : ".gate.bias")).data.as<float>(),
         unbiased.as<float>(), biased.as<float>(), 1, 384, stream));
+  }
+  void ensure_vision() {
+    if (vision) return;
+    image_delimiters.resize(3 * H * 2);
+    int i = 0;
+    for (const char *name : {"image_start", "image_newline", "image_end"}) {
+      const auto &t = source.tensor(name);
+      if (t.dtype != "BF16" || t.shape != std::vector<uint64_t>({uint64_t(H)}))
+        throw std::runtime_error(std::string("image delimiter dtype/shape: ") + name);
+      auto bytes = source.read(t);
+      CK(cudaMemcpyAsync(image_delimiters.as<char>(size_t(i++) * H * 2), bytes.data(), bytes.size(),
+                         cudaMemcpyHostToDevice, stream));
+      CK(cudaStreamSynchronize(stream));
+    }
+    vision = std::make_unique<VisionEncoder>(source, stream);
+    std::cerr << "ds41d vision tower loaded\n";
   }
   void moe(int l) {
     std::string p = "layers." + std::to_string(l) + ".ffn";

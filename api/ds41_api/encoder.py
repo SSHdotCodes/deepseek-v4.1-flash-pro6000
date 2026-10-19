@@ -49,14 +49,21 @@ class Encoder:
     """Tokenizes and detokenizes. Wraps a `tokenizers.Tokenizer` loaded from
     tokenizer.json (same dir as the weights); CharTokenizer for tests."""
 
-    def __init__(self, tokenizer: Any):
+    def __init__(self, tokenizer: Any, vision: Optional[Any] = None):
         self.tokenizer = tokenizer
+        # ds41_api.vision.VisionConfig when the checkpoint has a vision tower (image prompts), else None.
+        self.vision = vision
 
     @classmethod
-    def from_file(cls, tokenizer_path: str) -> "Encoder":
+    def from_file(cls, tokenizer_path: str, allow_remote_images: bool = True) -> "Encoder":
+        from pathlib import Path
+
         from tokenizers import Tokenizer
 
-        return cls(Tokenizer.from_file(tokenizer_path))
+        from .vision import VisionConfig
+
+        vision = VisionConfig.from_weights(Path(tokenizer_path).parent, allow_remote=allow_remote_images)
+        return cls(Tokenizer.from_file(tokenizer_path), vision)
 
     # -- text <-> ids ---------------------------------------------------
 

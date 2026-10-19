@@ -71,7 +71,7 @@ if(DS41_CUDA)
  target_link_libraries(engine_ops PRIVATE ds41_dense CUDA::cublas)
  target_compile_options(engine_ops PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3;--fmad=false;-lineinfo>)
  set_target_properties(engine_ops PROPERTIES CUDA_ARCHITECTURES "120a" CUDA_STANDARD 17)
- add_library(engine_cuda src/forward.cu src/engram_async.cpp src/spark_bridge.cpp src/prefill/stager.cpp src/blas_runtime.cpp)
+ add_library(engine_cuda src/forward.cu src/vision.cu src/engram_async.cpp src/spark_bridge.cpp src/prefill/stager.cpp src/blas_runtime.cpp)
  if(DS41_BLAS_RUNTIME_DIR)
   target_compile_definitions(engine_cuda PRIVATE DS41_BLAS_PIN_ACTIVE=1
       DS41_CUBLAS_SHA256="${DS41_CUBLAS_SHA256}"
@@ -157,4 +157,7 @@ add_test(NAME prefill_plan COMMAND test_prefill_plan)
 if(DS41_CUDA)
  add_executable(vram_probe tests/vram_probe.cpp)
  target_link_libraries(vram_probe PRIVATE engine_cuda ${CMAKE_DL_LIBS})
+ # Vision tower check against the official vision.py (scripts/vision_check.py); needs the checkpoint.
+ add_executable(vision_probe tests/vision_probe.cpp)
+ target_link_libraries(vision_probe PRIVATE engine_cuda ${CMAKE_DL_LIBS})
 endif()

@@ -1,6 +1,7 @@
 #include "ds41/engine.hpp"
 #include "ds41/native_store.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -52,6 +53,90 @@ std::vector<int> token_ids(const Json &j, int vocab) {
     ids.push_back(int(i));
   }
   return ids;
+}
+std::vector<uint8_t> base64_decode(const std::string &text) {
+  static const auto table = [] {
+    std::array<int16_t, 256> t;
+    t.fill(-1);
+    const char *alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (int i = 0; i < 64; ++i) t[uint8_t(alphabet[i])] = int16_t(i);
+    return t;
+  }();
+  std::vector<uint8_t> out;
+  out.reserve(text.size() / 4 * 3);
+  uint32_t buffer = 0;
+  int bits = 0;
+  size_t padding = 0;
+  for (char ch : text) {
+    if (ch == '=') { ++padding; continue; }
+    const int v = table[uint8_t(ch)];
+    if (v < 0 || padding) throw std::invalid_argument("image pixels must be base64");
+    buffer = (buffer << 6) | uint32_t(v);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push_back(uint8_t(buffer >> bits));
+    }
+  }
+  if (padding > 2 || (text.size() % 4))
+    throw std::invalid_argument("image pixels must be padded base64");
+  return out;
+}
+// The prompt's images: geometry and resized RGB pixels from the API (see ImageSpan), checked against the
+// token ids. Spans are sorted, disjoint, inside the prompt and hold the image token id at every position.
+std::vector<ImageSpan> image_spans(const Json &op, const std::vector<int> &ids) {
+  std::vector<ImageSpan> spans;
+  if (!op.contains("images") || op.at("images").is_null())
+    return spans;
+  const auto &list = op.at("images");
+  if (!list.is_array() || list.size() > 64)
+    throw std::invalid_argument("images must be an array of at most 64 entries");
+  int64_t previous_end = 0;
+  for (const auto &j : list) {
+    if (!j.is_object())
+      throw std::invalid_argument("image entries must be objects");
+    for (const char *key : {"start", "n_vit_h", "n_vit_w", "n_llm_h", "n_llm_w", "pixels"})
+      if (!j.contains(key))
+        throw std::invalid_argument(std::string("image entry needs ") + key);
+    ImageSpan img;
+    if (!j.at("start").is_number_integer())
+      throw std::invalid_argument("image start must be an integer");
+    img.start = j.at("start").get<int64_t>();
+    img.n_vit_h = integer(j, "n_vit_h", 0, 1, 1 << 14);
+    img.n_vit_w = integer(j, "n_vit_w", 0, 1, 1 << 14);
+    img.n_llm_h = integer(j, "n_llm_h", 0, 1, ImageSpan::max_tokens);
+    img.n_llm_w = integer(j, "n_llm_w", 0, 1, ImageSpan::max_tokens);
+    if (img.n_llm_h != (img.n_vit_h + 2) / 3 || img.n_llm_w != (img.n_vit_w + 2) / 3 ||
+        img.tokens() > ImageSpan::max_tokens)
+      throw std::invalid_argument("image grid does not match the vision geometry");
+    if (!j.at("pixels").is_string())
+      throw std::invalid_argument("image pixels must be a base64 string");
+    img.pixels = base64_decode(j.at("pixels").get<std::string>());
+    if (img.pixels.size() != size_t(img.n_vit_h) * 14 * img.n_vit_w * 14 * 3)
+      throw std::invalid_argument("image pixels must be n_vit_h*14 rows of n_vit_w*14 RGB pixels");
+    if (img.start < previous_end || img.end() > int64_t(ids.size()))
+      throw std::invalid_argument("image spans must be sorted, disjoint and inside the prompt");
+    for (int64_t pos = img.start; pos < img.end(); ++pos)
+      if (ids[pos] != ImageSpan::token_id)
+        throw std::invalid_argument("image span positions must hold the image token id");
+    const std::string geometry = std::to_string(img.n_vit_h) + "x" + std::to_string(img.n_vit_w) + ":";
+    img.digest = sha256_bytes(geometry.data(), geometry.size()) + sha256_bytes(img.pixels.data(), img.pixels.size());
+    previous_end = img.end();
+    spans.push_back(std::move(img));
+  }
+  return spans;
+}
+// Prefix-cache identity per position: the token id, or for image positions the image digest and offset, so
+// two different images with the same geometry (identical token ids) never share cached state.
+std::vector<uint64_t> position_keys(const std::vector<int> &ids, const std::vector<ImageSpan> &images) {
+  std::vector<uint64_t> keys(ids.begin(), ids.end());
+  for (const auto &img : images) {
+    const uint64_t base = std::stoull(img.digest.substr(0, 15), nullptr, 16) ^
+                          std::stoull(img.digest.substr(64, 15), nullptr, 16);
+    for (int64_t pos = img.start; pos < img.end(); ++pos)
+      keys[pos] = (uint64_t(1) << 63) | ((base + uint64_t(pos - img.start) * 0x9E3779B97F4A7C15ull) >> 1);
+  }
+  return keys;
 }
 bool send_json(int fd, const Json &event,
                const std::function<bool()> &cancelled = {}) {
@@ -136,8 +221,8 @@ bool read_line(int fd, std::string &pending, std::string &line) {
     }
     if (stopping)
       return false;
-    if (pending.size() > (32u << 20))
-      throw std::invalid_argument("request frame exceeds 32 MiB");
+    if (pending.size() > (256u << 20))
+      throw std::invalid_argument("request frame exceeds 256 MiB");
     pollfd p{fd, POLLIN, 0};
     int r = poll(&p, 1, 100);
     if (r < 0 && errno == EINTR)
@@ -177,6 +262,7 @@ class Service {
   struct Prefix {
     std::string conversation;
     std::vector<int> inputs;
+    std::vector<uint64_t> keys; // position_keys of inputs: what reuse compares
     std::vector<float> logits;
     std::shared_ptr<Forward::Snapshot> boundary;
     size_t boundary_len = 0;
@@ -184,10 +270,10 @@ class Service {
     bool same_conversation(const std::string &id, bool any) const {
       return any || (!id.empty() && id == conversation);
     }
-    bool matches(const std::string &id, const std::vector<int> &prompt, bool any) const {
-      return same_conversation(id, any) && !inputs.empty() &&
-             inputs.size() <= prompt.size() &&
-             std::equal(inputs.begin(), inputs.end(), prompt.begin());
+    bool matches(const std::string &id, const std::vector<uint64_t> &prompt, bool any) const {
+      return same_conversation(id, any) && !keys.empty() &&
+             keys.size() <= prompt.size() &&
+             std::equal(keys.begin(), keys.end(), prompt.begin());
     }
   } prefix;
 
@@ -245,10 +331,10 @@ public:
         prompt = int(ids.size());
         if (prompt > context)
           throw std::invalid_argument("prompt exceeds max_context");
-        if (op.contains("images") && !op.at("images").is_null() &&
-            !op.at("images").empty())
-          throw std::invalid_argument("unsupported: vision forward is not "
-                                      "implemented in this engine build");
+        const auto images = image_spans(op, ids);
+        const auto keys = position_keys(ids, images);
+        if (!images.empty() && verb == "score")
+          throw std::invalid_argument("unsupported: score requests with images");
         const std::string draft_mode = op.value("draft", std::string("auto"));
         if (draft_mode != "off" && draft_mode != "auto" && draft_mode != "on")
           throw std::invalid_argument(
@@ -396,17 +482,18 @@ public:
           finish("length");
           break;
         }
-        size_t reused = prefix_cache && prefix.matches(conversation, ids, prefix_any)
+        size_t reused = prefix_cache && prefix.matches(conversation, keys, prefix_any)
                             ? prefix.inputs.size()
                             : 0;
         bool rewound = false;
         if (!reused && prefix_cache && prefix.boundary && prefix.boundary_len &&
             prefix.same_conversation(conversation, prefix_any) &&
             prefix.boundary_len <= ids.size() && prefix.boundary_len <= prefix.inputs.size() &&
-            std::equal(prefix.inputs.begin(), prefix.inputs.begin() + prefix.boundary_len, ids.begin())) {
+            std::equal(prefix.keys.begin(), prefix.keys.begin() + prefix.boundary_len, keys.begin())) {
           try {
             model->restore(*prefix.boundary);
             prefix.inputs.resize(prefix.boundary_len);
+            prefix.keys.resize(prefix.boundary_len);
             prefix.logits = prefix.boundary_logits;
             reused = prefix.boundary_len;
             rewound = true;
@@ -426,6 +513,7 @@ public:
         auto consume = [&](int token) {
           auto next = model->verify({token}).at(0);
           model->commit(1);
+          prefix.keys.push_back(keys[prefix.inputs.size()]);
           prefix.inputs.push_back(token);
           prefix.logits = next;
           logits = std::move(next);
@@ -452,6 +540,7 @@ public:
           options.mode = mode;
           options.dense_batch_rows = prefill_dense_batch;
           options.warm = next + rows == ids.size();
+          options.images = images.empty() ? nullptr : &images;
           std::vector<int> segment(ids.begin() + next, ids.begin() + next + rows);
           auto result = model->prefill(segment, options);
           if (result.begin_position != int64_t(next) ||
@@ -459,10 +548,16 @@ public:
               result.logits.back().size() != size_t(model->vocab()))
             throw std::runtime_error("prefill returned inconsistent committed rows");
           prefix.inputs.insert(prefix.inputs.end(), segment.begin(), segment.end());
+          prefix.keys.insert(prefix.keys.end(), keys.begin() + next, keys.begin() + next + rows);
           prefix.logits = result.logits.back();
           logits = std::move(result.logits.back());
           next += rows;
         }
+        // The sequential path has no image embeddings: an image the prefill could not take is an error.
+        for (const auto &img : images)
+          if (img.end() > int64_t(next) && !cancelled())
+            throw std::runtime_error("image prompt needs a prefill segment, and it did not fit beside "
+                                     "the expert cache");
         for (size_t i = next; i < ids.size(); ++i) {
           if (cancelled())
             break;
@@ -570,6 +665,8 @@ public:
             accepted += std::min(delivered, result.accepted);
             prefix.inputs.insert(prefix.inputs.end(), step.inputs().begin(),
                                  step.inputs().begin() + consumed);
+            prefix.keys.insert(prefix.keys.end(), step.inputs().begin(),
+                               step.inputs().begin() + consumed);
             prefix.logits = step.rows()[consumed - 1];
             anchor = result.emitted.back();
           }

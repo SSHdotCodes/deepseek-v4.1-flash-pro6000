@@ -18,19 +18,19 @@ from .backend import (
     BackendEvent,
     BackendStream,
     FinishEvent,
-    ImagePayload,
     SamplingParams,
     TokenEvent,
     Usage,
     event_from_dict,
 )
+from .vision import VisionImage
 
 
 def _submit_line(
     request_id: str,
     token_ids: Sequence[int],
     sampling: SamplingParams,
-    images: Optional[Sequence[ImagePayload]],
+    images: Optional[Sequence[VisionImage]],
     conversation_id: Optional[str],
 ) -> str:
     payload: Dict[str, Any] = {
@@ -62,7 +62,7 @@ class SocketBackend(Backend):
         self,
         token_ids: Sequence[int],
         sampling: SamplingParams,
-        images: Optional[Sequence[ImagePayload]] = None,
+        images: Optional[Sequence[VisionImage]] = None,
         conversation_id: Optional[str] = None,
         request_id: Optional[str] = None,
     ) -> BackendStream:
@@ -160,7 +160,7 @@ async def serve_socket(
 
             request_id = op.get("request_id") or uuid.uuid4().hex
             sampling = SamplingParams.from_dict(op.get("sampling", {}))
-            images = [ImagePayload.from_dict(d) for d in op.get("images") or []]
+            images = [VisionImage.from_dict(d) for d in op.get("images") or []]
             token_ids = op.get("token_ids") or []
             if not token_ids:
                 writer.write(
@@ -201,7 +201,7 @@ async def serve_socket(
             except Exception:
                 pass
 
-    server = await asyncio.start_unix_server(handle, str(path))
+    server = await asyncio.start_unix_server(handle, str(path), limit=256 << 20)  # image frames
     if start_event is not None:
         start_event.set()
     try:
