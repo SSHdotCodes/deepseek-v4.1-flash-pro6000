@@ -20,13 +20,13 @@
   "DS41_PREFILL_CHUNK_FIT": "1",
   "DS41_MOE_GDS": "1",
   "CUFILE_USE_PCIP2PDMA": "true",
-  "CUFILE_ENV_PATH_JSON": "/run/user/1000/ds41-vision/cufile.json"
+  "CUFILE_ENV_PATH_JSON": "/run/user/1000/ds41-cleanroom/cufile.json"
  },
  "summary": {
-  "decode_tok_s_mean": 31.678,
+  "decode_tok_s_mean": 31.623,
   "per_seed": {
-   "21": 31.257,
-   "22": 32.098
+   "21": 31.226,
+   "22": 32.02
   },
   "tokens_vs_reference": {
    "compared": 14,
@@ -36,17 +36,17 @@
  "runs": [
   {
    "seed": 21,
-   "load_s": 43.8,
+   "load_s": 38.8,
    "cases": [
     {
      "id": "agentic-001",
      "prompt_tokens": 8029,
      "generated": 64,
-     "ttft_s": 15.308,
-     "decode_tok_s": 21.912,
+     "ttft_s": 14.236,
+     "decode_tok_s": 21.964,
      "tokens_sha256": "bc8216a1a45cc6dddaac3e66b9e3a749e30cbea98360fe0a28831594eea094b0",
      "draft_acceptance": 0.8095238095238095,
-     "expert_host_hits": 2011,
+     "expert_host_hits": 2008,
      "expert_nvme_misses": 952,
      "warmup": true
     },
@@ -54,11 +54,11 @@
      "id": "chat-000",
      "prompt_tokens": 74,
      "generated": 256,
-     "ttft_s": 2.149,
-     "decode_tok_s": 28.084,
+     "ttft_s": 2.148,
+     "decode_tok_s": 28.092,
      "tokens_sha256": "c60f3e98c40f8064dd055ee1bcf2e2285c611d724ab11fcf701493a1f03b853f",
      "draft_acceptance": 0.8695652173913043,
-     "expert_host_hits": 5845,
+     "expert_host_hits": 5843,
      "expert_nvme_misses": 2316,
      "warmup": false
     },
@@ -66,11 +66,11 @@
      "id": "agentic-000",
      "prompt_tokens": 7999,
      "generated": 223,
-     "ttft_s": 13.515,
-     "decode_tok_s": 31.522,
+     "ttft_s": 13.583,
+     "decode_tok_s": 31.495,
      "tokens_sha256": "1971de61cf435ae02604c83470dbe088a42d3bcbd8d08d4ba102a16659cdad39",
      "draft_acceptance": 0.9183673469387755,
-     "expert_host_hits": 7198,
+     "expert_host_hits": 7193,
      "expert_nvme_misses": 1672,
      "warmup": false
     },
@@ -78,8 +78,8 @@
      "id": "mt-000-followup-english",
      "prompt_tokens": 2335,
      "generated": 256,
-     "ttft_s": 9.355,
-     "decode_tok_s": 27.376,
+     "ttft_s": 9.351,
+     "decode_tok_s": 27.35,
      "tokens_sha256": "a9bf53789109f44ebb613f2d7d188b10eda192519a71a18e64ffe69a28dcc1c0",
      "draft_acceptance": 0.8602941176470589,
      "expert_host_hits": 7705,
@@ -90,8 +90,8 @@
      "id": "chat-001",
      "prompt_tokens": 73,
      "generated": 256,
-     "ttft_s": 2.119,
-     "decode_tok_s": 34.266,
+     "ttft_s": 2.125,
+     "decode_tok_s": 34.169,
      "tokens_sha256": "6f6d7e0ff899bbbfb4c45f8b2d71b5d73d7372da50f7af1a394b951e2ed5b442",
      "draft_acceptance": 0.8837209302325582,
      "expert_host_hits": 6370,
@@ -102,39 +102,39 @@
      "id": "chat-002",
      "prompt_tokens": 77,
      "generated": 256,
-     "ttft_s": 1.98,
-     "decode_tok_s": 38.127,
+     "ttft_s": 1.979,
+     "decode_tok_s": 38.023,
      "tokens_sha256": "9340ca74c09611086e1d149d0094e2c4a4c439897f9f1f4662114361c6e81583",
      "draft_acceptance": 0.8918918918918919,
-     "expert_host_hits": 5458,
-     "expert_nvme_misses": 890,
+     "expert_host_hits": 5442,
+     "expert_nvme_misses": 891,
      "warmup": false
     },
     {
      "id": "agentic-001",
      "prompt_tokens": 8029,
      "generated": 256,
-     "ttft_s": 13.24,
-     "decode_tok_s": 28.165,
+     "ttft_s": 13.256,
+     "decode_tok_s": 28.227,
      "tokens_sha256": "de75d697b2e703e9383eed1ea26c9841dcd69aa5edb7a82dfc46d76f6ece42c0",
      "draft_acceptance": 0.8214285714285714,
-     "expert_host_hits": 8439,
+     "expert_host_hits": 8435,
      "expert_nvme_misses": 2124,
      "warmup": false
     }
    ],
-   "decode_tok_s_mean": 31.257
+   "decode_tok_s_mean": 31.226
   },
   {
    "seed": 22,
-   "load_s": 36.8,
+   "load_s": 37.2,
    "cases": [
     {
      "id": "agentic-001",
      "prompt_tokens": 8029,
      "generated": 64,
-     "ttft_s": 14.575,
-     "decode_tok_s": 24.425,
+     "ttft_s": 14.321,
+     "decode_tok_s": 24.41,
      "tokens_sha256": "5d24841c958dca8e05ebe559b8e24f89df0f7f16f37605956293bdb7770bc07a",
      "draft_acceptance": 0.8717948717948718,
      "expert_host_hits": 1682,
@@ -145,11 +145,11 @@
      "id": "chat-000",
      "prompt_tokens": 74,
      "generated": 256,
-     "ttft_s": 2.497,
-     "decode_tok_s": 28.373,
+     "ttft_s": 2.491,
+     "decode_tok_s": 28.28,
      "tokens_sha256": "cf1ea3ba19f2c572c7b689c5c34e040d531000de1cbd500da41ed7c32b462a1a",
      "draft_acceptance": 0.8955223880597015,
-     "expert_host_hits": 6407,
+     "expert_host_hits": 6403,
      "expert_nvme_misses": 2413,
      "warmup": false
     },
@@ -157,11 +157,11 @@
      "id": "agentic-000",
      "prompt_tokens": 7999,
      "generated": 256,
-     "ttft_s": 13.706,
-     "decode_tok_s": 35.312,
+     "ttft_s": 13.829,
+     "decode_tok_s": 35.128,
      "tokens_sha256": "88ab977b46d3043bfd88e4d9fb32c6addc0abf2977d289bf274c30388f910638",
      "draft_acceptance": 0.828125,
-     "expert_host_hits": 5859,
+     "expert_host_hits": 5862,
      "expert_nvme_misses": 994,
      "warmup": false
     },
@@ -169,35 +169,35 @@
      "id": "mt-000-followup-english",
      "prompt_tokens": 2335,
      "generated": 256,
-     "ttft_s": 9.399,
-     "decode_tok_s": 30.761,
+     "ttft_s": 9.328,
+     "decode_tok_s": 30.635,
      "tokens_sha256": "83b702578068297951557a96ca4df9edd8534dda1846073d2e8ff3dda74f116a",
      "draft_acceptance": 0.9121621621621622,
-     "expert_host_hits": 8038,
-     "expert_nvme_misses": 1699,
+     "expert_host_hits": 8045,
+     "expert_nvme_misses": 1700,
      "warmup": false
     },
     {
      "id": "chat-001",
      "prompt_tokens": 73,
      "generated": 256,
-     "ttft_s": 2.427,
-     "decode_tok_s": 32.559,
+     "ttft_s": 2.513,
+     "decode_tok_s": 32.555,
      "tokens_sha256": "d7d5625e2e85d85a041ad2d2728c6d240a20d04459ce1e7478d231fd2ef2bb97",
      "draft_acceptance": 0.8292682926829268,
-     "expert_host_hits": 6342,
-     "expert_nvme_misses": 1427,
+     "expert_host_hits": 6344,
+     "expert_nvme_misses": 1428,
      "warmup": false
     },
     {
      "id": "chat-002",
      "prompt_tokens": 77,
      "generated": 256,
-     "ttft_s": 2.247,
-     "decode_tok_s": 35.765,
+     "ttft_s": 2.089,
+     "decode_tok_s": 35.738,
      "tokens_sha256": "11912b8e87b9710aea6976c87e0f1ddd30af3414839b2aec5fb69f5d7890f12b",
      "draft_acceptance": 0.8347826086956521,
-     "expert_host_hits": 6092,
+     "expert_host_hits": 6102,
      "expert_nvme_misses": 973,
      "warmup": false
     },
@@ -205,16 +205,16 @@
      "id": "agentic-001",
      "prompt_tokens": 8029,
      "generated": 256,
-     "ttft_s": 13.474,
-     "decode_tok_s": 29.816,
+     "ttft_s": 13.271,
+     "decode_tok_s": 29.786,
      "tokens_sha256": "aa7676fd06d96b14231ae69f05102152febe799744c9bb8fe75453fe95cd124d",
      "draft_acceptance": 0.9125,
-     "expert_host_hits": 7796,
-     "expert_nvme_misses": 2035,
+     "expert_host_hits": 7802,
+     "expert_nvme_misses": 2034,
      "warmup": false
     }
    ],
-   "decode_tok_s_mean": 32.098
+   "decode_tok_s_mean": 32.02
   }
  ]
 }

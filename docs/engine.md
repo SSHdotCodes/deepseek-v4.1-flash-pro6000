@@ -52,22 +52,25 @@ The step is transfer-bound. In development profiling (raw data not included) the
 
 The checkpoint ships DeepSeek's vision tower: a 32-block ViT (width 1,024, 14-pixel patches, 2D RoPE) and an aligner that merges each 3 x 3 block of patches into one 5,120-wide token row, 970 MB of BF16 weights. `ds41d` runs it natively, like the rest of the model.
 
-- **Preparing the prompt (API).** `api/ds41_api/vision.py` reads each image from a `data:` URL, base64 or a public http(s) URL. It refuses local paths, private addresses and redirects. A host is resolved once and the connection goes only to the addresses that were checked, without proxies. Downloads are capped at 32 MiB, a request's downloads at 60 seconds, and images at 64 megapixels before decoding; two images are prepared at a time. It resizes and pads the image exactly like the checkpoint's `inference/image_processor.py`, then replaces the image placeholder with the span the official `prepare_vl_inputs` builds: `[START] + ([IMAGE] x w + [NEWLINE]) x h + [END]`, at most 1,024 tokens. A 512 x 512 image takes 184 tokens, 1024 x 768 takes 496 and a 4032 x 3024 photo 1,001. The engine receives the token ids plus each span's position, grid and RGB pixels.
-- **Encoding (`engine/src/vision.cu`).** The ViT and aligner run in BF16 with FP32 accumulation: cuBLAS GEMMs plus small kernels for the norms, RoPE, softmax, SwiGLU and the 3 x 3 merge. The weights stay in pinned host RAM and are uploaded one stage at a time. An encode therefore borrows 0.4–0.8 GB of VRAM and frees it before prefill; the expert slots never shrink. A typical image encodes in 35 ms and the largest in 0.32 s. The first image after a start also loads the weights, which takes a few seconds.
+- **Preparing the prompt (API).** `api/ds41_api/vision.py` reads each image from a `data:` URL, base64 or a public http(s) URL. It refuses local paths, private addresses and redirects. A host is resolved once and the connection goes only to the addresses that were checked, without proxies. Downloads are capped at 32 MiB per image and 60 seconds per request, URLs at 8,192 characters, and images at 64 megapixels, checked before decoding. Two images are prepared at a time across all requests. It resizes and pads the image exactly like the checkpoint's `inference/image_processor.py`, then replaces the image placeholder with the span the official `prepare_vl_inputs` builds: `[START] + ([IMAGE] x w + [NEWLINE]) x h + [END]`, at most 1,024 tokens. A 512 x 512 image takes 184 tokens, 1024 x 768 takes 496 and a 4032 x 3024 photo 1,001. The engine receives the token ids plus each span's position, grid and RGB pixels.
+- **Encoding (`engine/src/vision.cu`).** The ViT and aligner run in BF16 with FP32 accumulation: cuBLAS GEMMs plus small kernels for the norms, RoPE, softmax, SwiGLU and the 3 x 3 merge. The weights stay in pinned host RAM and are uploaded one stage at a time. An encode therefore borrows 0.4–0.8 GB of VRAM and frees it before prefill; the expert slots never shrink. A typical image encodes in 35 ms and the largest in 0.37 s. The first image after a start also loads the weights, which takes a few seconds.
 - **Prefill.** Image rows take the aligner's output as their embedding, and the delimiter rows take the learned `image_start`, `image_newline` and `image_end` vectors. As in the official `model.py`, image rows skip Engram, are left out of its n-gram history and route with the router's VL bias (`gate.bias_vl`). The drafter sees token embeddings, as in the reference. Image rows always go through prefill, never through one-token decode.
 - **Prefix reuse.** The cache keys each image position by a hash of the image's pixels and geometry. A follow-up turn reuses an image conversation, and a different image of the same size is not mistaken for the cached one.
 
 Checks ([`benchmarks/vision-20261018/`](../benchmarks/vision-20261018)):
 
-- `scripts/vision_check.py` compares preprocessing and the encoder with the checkpoint's own code on 9 images: the checkpoint's two example photos plus synthetic images for upscaling, padding and the token-budget shrink.
-  - Patches are identical on all 9.
-  - Against PyTorch running the official `vision.py`, the encoder's output differs by 2.0–5.8% relative error. The reference differs from itself by 2.1–5.8% between its flash and math attention backends.
-  - Mean row cosine is at least 0.998.
+- `scripts/vision_check.py` compares preprocessing and the encoder with the checkpoint's own code on 11 images: the checkpoint's two example photos plus synthetic images for upscaling, padding, the token-budget shrink and its single-row and single-column fallbacks.
+  - Patches are identical on all 11.
+  - Against PyTorch running the official `vision.py`, the encoder's output differs by 2.0–5.8% relative error on the 9 ordinary images. The reference differs from itself by 2.1–5.8% between its flash and math attention backends.
+  - The 60000 x 20 extreme, a single row of 1,021 tokens, is the one case outside the reference's own spread: 8.4% against 6.3%. Its 20 x 60000 counterpart differs by 4.6% against 3.8%.
+  - Mean row cosine is at least 0.997.
+  - The script fails unless patches are identical, every value is finite and the encoder stays within twice the reference's own spread.
 - `scripts/vision_e2e.py` asks the running service about images, with greedy decoding: 7 of 7 checks pass.
   - A color, rendered text ("DS41 VISION 7342"), two images in order and the example photo ("a stack of five fresh orange carrots").
   - A follow-up turn reuses the first turn's 293 tokens; a different image of the same size reuses none.
   - The same question through Anthropic Messages.
-- Text is unchanged: `scripts/benchmark.py --seeds 21 22` returns the same 14 token sequences at 31.7 tok/s, and `api_check.py` passes 15 of 15.
+- Text is unchanged: `scripts/benchmark.py --seeds 21 22` returns the same 14 token sequences at 31.6 tok/s, and `api_check.py` passes 15 of 15.
+- These results come from a fresh clone of this branch, built with `scripts/build.sh`. That run also sent `ds41d` hostile image spans straight to its socket, such as a start of 2^63−1 or a negative start: each got an error and the engine kept serving.
 
 ## Quality
 

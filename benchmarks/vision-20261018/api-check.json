@@ -1,5 +1,5 @@
 {
- "base": "http://127.0.0.1:18087",
+ "base": "http://127.0.0.1:18187",
  "model": "deepseek-v4.1-flash-1017",
  "results": [
   {
@@ -11,28 +11,28 @@
   {
    "check": "chat",
    "ok": true,
-   "seconds": 2.42,
+   "seconds": 3.72,
    "detail": {
     "content": "391",
-    "reasoning_chars": 38,
+    "reasoning_chars": 58,
     "usage": {
      "prompt_tokens": 44,
-     "completion_tokens": 15,
-     "total_tokens": 59,
+     "completion_tokens": 20,
+     "total_tokens": 64,
      "completion_tokens_details": {
-      "reasoning_tokens": 14
+      "reasoning_tokens": 19
      },
      "prompt_tokens_details": {
       "cached_tokens": 0
      },
      "ds41_timing": {
-      "queue_ms": 0.015,
-      "prefill_ms": 1577.124,
-      "decode_ms": 840.731,
-      "decode_tok_s": 17.842,
-      "draft_tokens": 12,
-      "accepted_draft_tokens": 9,
-      "draft_acceptance_rate": 0.75
+      "queue_ms": 0.019,
+      "prefill_ms": 2487.317,
+      "decode_ms": 1234.236,
+      "decode_tok_s": 16.204,
+      "draft_tokens": 15,
+      "accepted_draft_tokens": 13,
+      "draft_acceptance_rate": 0.8667
      }
     }
    }
@@ -40,31 +40,31 @@
   {
    "check": "reasoning effort",
    "ok": true,
-   "seconds": 4.28,
+   "seconds": 3.71,
    "detail": {
-    "low": 20,
-    "max": 23
+    "low": 19,
+    "max": 19
    }
   },
   {
    "check": "thinking off",
    "ok": true,
-   "seconds": 0.65,
+   "seconds": 0.85,
    "detail": "391"
   },
   {
    "check": "chat streaming",
    "ok": true,
-   "seconds": 1.77,
+   "seconds": 1.8,
    "detail": {
-    "ttft_s": 1.42,
+    "ttft_s": 1.39,
     "content": "391"
    }
   },
   {
    "check": "tool call",
    "ok": true,
-   "seconds": 7.26,
+   "seconds": 6.78,
    "detail": {
     "name": "get_weather",
     "arguments": "{\"city\": \"Paris\"}"
@@ -73,13 +73,13 @@
   {
    "check": "tool round trip",
    "ok": true,
-   "seconds": 8.8,
-   "detail": "Right now in Paris, it's **17 \u00b0C** with **light rain** \u2014 you'd want an umbrella if you're heading out. \u2614\n\nLet me know if"
+   "seconds": 8.48,
+   "detail": "Right now in Paris it's **17\u00b0C with light rain**. You might want an umbrella if you're heading out."
   },
   {
    "check": "anthropic messages",
    "ok": true,
-   "seconds": 3.78,
+   "seconds": 4.05,
    "detail": {
     "text": "391",
     "stream_events": 27
@@ -88,7 +88,7 @@
   {
    "check": "anthropic tool use",
    "ok": true,
-   "seconds": 5.75,
+   "seconds": 5.63,
    "detail": {
     "city": "Paris"
    }
@@ -104,55 +104,55 @@
   {
    "check": "responses",
    "ok": true,
-   "seconds": 1.88,
+   "seconds": 2.17,
    "detail": "391"
   },
   {
    "check": "cold prompt ~2K",
    "ok": true,
-   "seconds": 11.81,
+   "seconds": 11.78,
    "detail": {
     "prompt_tokens": 2047,
     "cached_tokens": 0,
-    "ttft_s": 8.83,
-    "prefill_tok_s": 231.9,
-    "decode_tok_s": 21.512
+    "ttft_s": 9.21,
+    "prefill_tok_s": 222.3,
+    "decode_tok_s": 24.942
    }
   },
   {
    "check": "cold prompt ~8K",
    "ok": true,
-   "seconds": 15.35,
+   "seconds": 15.59,
    "detail": {
     "prompt_tokens": 8192,
     "cached_tokens": 0,
-    "ttft_s": 13.04,
-    "prefill_tok_s": 628.8,
-    "decode_tok_s": 27.874
+    "ttft_s": 13.51,
+    "prefill_tok_s": 606.6,
+    "decode_tok_s": 31.054
    }
   },
   {
    "check": "follow-up on 8K (reuse)",
    "ok": true,
-   "seconds": 2.47,
+   "seconds": 2.88,
    "detail": {
     "prompt_tokens": 8268,
     "cached_tokens": 8255,
-    "ttft_s": 0.49,
-    "prefill_tok_s": 17311.6,
-    "decode_tok_s": 32.265
+    "ttft_s": 0.68,
+    "prefill_tok_s": 12351.2,
+    "decode_tok_s": 29.074
    }
   },
   {
    "check": "cold prompt ~32K",
    "ok": true,
-   "seconds": 33.63,
+   "seconds": 35.54,
    "detail": {
     "prompt_tokens": 32765,
     "cached_tokens": 0,
-    "ttft_s": 31.52,
-    "prefill_tok_s": 1040.2,
-    "decode_tok_s": 31.311
+    "ttft_s": 33.49,
+    "prefill_tok_s": 978.9,
+    "decode_tok_s": 32.298
    }
   }
  ]

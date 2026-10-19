@@ -7,19 +7,19 @@
    "ok": true,
    "answer": "Red",
    "prompt_tokens": 202,
-   "seconds": 3.77
+   "seconds": 3.19
   },
   {
    "check": "text",
    "ok": true,
    "answer": "DS41 VISION 7342",
-   "seconds": 3.95
+   "seconds": 3.46
   },
   {
    "check": "two",
    "ok": true,
    "answer": "Blue, yellow",
-   "seconds": 4.31
+   "seconds": 4.2
   },
   {
    "check": "photo",
@@ -27,7 +27,7 @@
    "image": "carrots.jpeg",
    "answer": "This image features a stack of five fresh orange carrots with green stems against a plain white background.",
    "prompt_tokens": 456,
-   "seconds": 6.34
+   "seconds": 6.4
   },
   {
    "check": "reuse",
@@ -37,8 +37,8 @@
    "first_prompt_tokens": 292,
    "cached_tokens": 293,
    "seconds": [
-    2.68,
-    0.63
+    3.31,
+    0.57
    ]
   },
   {
@@ -47,13 +47,13 @@
    "answer": "Purple",
    "cached_tokens": 0,
    "prompt_tokens": 292,
-   "seconds": 2.13
+   "seconds": 2.31
   },
   {
    "check": "anthropic",
    "ok": true,
    "answer": "Red",
-   "seconds": 1.46
+   "seconds": 1.55
   }
  ]
 }
