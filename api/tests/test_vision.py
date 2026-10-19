@@ -1,6 +1,7 @@
 """Image prompt preparation (ds41_api.vision): span expansion, image sources and limits."""
 import base64
 import io
+import time
 
 import pytest
 
@@ -239,13 +240,60 @@ def test_deadline_bounds_endless_informational_responses(monkeypatch):
 def test_urls_are_canonicalized_before_the_host_check():
     from ds41_api import vision
 
-    assert vision._canonical_url("http://8.8.8.8/猫.png") == ("http://8.8.8.8/%E7%8C%AB.png", "8.8.8.8", 80)
-    assert vision._canonical_url("https://Bücher.example/a b.png?q=ä") == (
-        "https://xn--bcher-kva.example/a%20b.png?q=%C3%A4", "xn--bcher-kva.example", 443)
-    with pytest.raises(ValueError, match="credentials"):
-        vision._canonical_url("http://user:pw@images.example/x.png")
-    with pytest.raises(ValueError, match="port"):
-        vision._canonical_url("http://images.example:99999/x.png")
+    c = vision._canonical_url
+    assert c("http://8.8.8.8/猫.png") == ("http", "8.8.8.8", 80, "/%E7%8C%AB.png", "8.8.8.8")
+    assert c("HTTPS://Bücher.example/a b.png?q=ä#frag") == (
+        "https", "xn--bcher-kva.example", 443, "/a%20b.png?q=%C3%A4", "xn--bcher-kva.example")
+    # IDNA 2008 (UTS #46, non-transitional), not Python's IDNA 2003 codec: these are different domains.
+    assert c("https://faß.de/x.png")[1] == "xn--fa-hia.de"
+    assert c("https://ς.gr/x.png")[1] == "xn--3xa.gr"
+    assert c("http://[2606:4700:4700::1111]:8080/x")[1:] == ("2606:4700:4700::1111", 8080, "/x",
+                                                            "[2606:4700:4700::1111]:8080")
+    assert c("http://8.8.8.8/a;variant=red.png?x=1")[3] == "/a;variant=red.png?x=1"
+    for bad, match in [("http://user:pw@images.example/x.png", "credentials"), ("http://images.example:0/x", "port"),
+                       ("http://images.example:99999/x.png", "port"), ("http:///x.png", "no host"),
+                       ("http://images.example/" + "a" * 9000, "longer")]:
+        with pytest.raises(ValueError, match=match):
+            c(bad)
+
+
+@pytest.mark.parametrize("url, target, host", [
+    ("http://8.8.8.8/a;variant=red.png?x=1", b"/a;variant=red.png?x=1", b"8.8.8.8"),
+    ("http://[2606:4700:4700::1111]:8080/x.png", b"/x.png", b"[2606:4700:4700::1111]:8080"),
+    ("http://8.8.8.8/猫.png?x=猫", b"/%E7%8C%AB.png?x=%E7%8C%AB", b"8.8.8.8"),
+])
+def test_request_on_the_wire(monkeypatch, url, target, host):
+    """The bytes httpcore writes: the full target (with ;parameters) and a valid Host (IPv6 in brackets)."""
+    import httpcore
+
+    from ds41_api import vision
+
+    sent, dialed = [], []
+    body = png(8, 8)
+
+    class Server(httpcore.NetworkStream):
+        def read(self, max_bytes, timeout=None):
+            if not getattr(self, "done", False):
+                self.done = True
+                return b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%b" % (len(body), body)
+            return b""
+
+        def write(self, buffer, timeout=None):
+            sent.append(buffer)
+
+        def close(self):
+            pass
+
+        def get_extra_info(self, info):
+            return None
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp",
+                        lambda self, host, port, *a, **k: dialed.append((host, port)) or Server())
+    assert vision._fetch(url, time.monotonic() + 5) == body
+    request = b"".join(sent)
+    assert request.startswith(b"GET " + target + b" HTTP/1.1\r\n")
+    assert b"\r\nHost: " + host + b"\r\n" in request
+    assert dialed[0][0] in ("8.8.8.8", "2606:4700:4700::1111")
 
 
 def test_source_pixel_limit():

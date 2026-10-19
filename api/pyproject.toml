@@ -10,6 +10,7 @@ dependencies = [
     "tokenizers>=0.19",
     "pillow>=10",
     "httpcore>=1.0",  # remote image URLs (ds41_api.vision)
+    "idna>=3",  # IDNA 2008 hostnames in image URLs
 ]
 
 [dependency-groups]

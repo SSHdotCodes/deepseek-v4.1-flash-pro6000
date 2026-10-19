@@ -25,12 +25,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import quote, unquote_to_bytes, urlparse, urlsplit, urlunsplit
+from urllib.parse import quote, unquote_to_bytes, urlparse, urlsplit
 
 from .backend import ImagePayload
 
 MAX_IMAGES = 16
 MAX_IMAGE_BYTES = 32 << 20
+MAX_URL_LENGTH = 8192
 # Decoded size limit, checked from the header before decoding: a small PNG can expand to gigabytes.
 MAX_SOURCE_PIXELS = 64_000_000
 # Wall-clock limits for remote images: one URL, and all of a request's images together.
@@ -196,32 +197,47 @@ def _public_addresses(host: str, port: int, deadline: float) -> List[str]:
     return found
 
 
-def _canonical_url(url: str) -> Tuple[str, str, int]:
-    """(ASCII URL, host, port): the hostname IDNA-encoded and the path and query percent-encoded, once, so
-    the host that is checked is the host that is connected to. URLs with credentials are refused."""
+def _canonical_url(url: str) -> Tuple[str, str, int, str, str]:
+    """(scheme, host, port, target, Host header) of an http(s) URL, computed once so the host that is checked
+    is the host that is connected to and named in Host and TLS: the hostname IDNA 2008 encoded (UTS #46, like
+    browsers and httpx), the path (with any ;parameters) and query percent-encoded, no fragment. URLs with
+    credentials, ports outside 1..65535 and URLs over MAX_URL_LENGTH are refused; the length cap keeps the
+    whole request within one socket send, so a peer that reads slowly cannot stretch the write."""
+    if len(url) > MAX_URL_LENGTH:
+        raise ValueError(f"image URL is longer than {MAX_URL_LENGTH} characters")
     parts = urlsplit(url)
+    scheme = parts.scheme.lower()
     if parts.username is not None or parts.password is not None:
         raise ValueError("image URL must not contain credentials")
-    host = parts.hostname or ""
     try:
-        port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+        explicit_port = parts.port
     except ValueError as exc:
         raise ValueError("image URL has an invalid port") from exc
-    try:
-        ipaddress.ip_address(host)
-        netloc_host = f"[{host}]" if ":" in host else host
-    except ValueError:
-        try:
-            host = host.encode("idna").decode("ascii")
-        except UnicodeError as exc:
-            raise ValueError("image URL has an invalid hostname") from exc
-        netloc_host = host
+    if explicit_port is not None and not 1 <= explicit_port <= 65535:
+        raise ValueError("image URL has an invalid port")
+    default_port = 443 if scheme == "https" else 80
+    port = explicit_port or default_port
+    host = parts.hostname or ""
     if not host:
         raise ValueError("image URL has no host")
-    netloc = netloc_host + (f":{parts.port}" if parts.port else "")
-    path = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
-    query = quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
-    return urlunsplit((parts.scheme.lower(), netloc, path, query, "")), host, port
+    try:
+        literal = ipaddress.ip_address(host)
+        authority = f"[{literal}]" if literal.version == 6 else str(literal)
+        host = str(literal)
+    except ValueError:
+        if not host.isascii():
+            import idna
+
+            try:
+                host = idna.encode(host, uts46=True).decode("ascii")
+            except idna.IDNAError as exc:
+                raise ValueError("image URL has an invalid hostname") from exc
+        authority = host
+    host_header = authority if port == default_port else f"{authority}:{port}"
+    target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
+    if parts.query:
+        target += "?" + quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
+    return scheme, host, port, target, host_header
 
 
 def _pinned_backend(expected_host: str, addresses: List[str], deadline: float):
@@ -279,15 +295,17 @@ def _fetch(url: str, deadline: float) -> bytes:
     MAX_IMAGE_BYTES, finished before the deadline."""
     import httpcore
 
-    url, host, port = _canonical_url(url)
+    scheme, host, port, target, host_header = _canonical_url(url)
     addresses = _public_addresses(host, port, deadline)
     step = min(REMOTE_TIMEOUT_S, _remaining(deadline))
     timeouts = {"connect": step, "read": step, "write": step, "pool": step}
+    # A URL built from parts: httpcore would reparse a string, dropping ;parameters and IPv6 brackets.
+    request_url = httpcore.URL(scheme=scheme, host=host, port=port, target=target)
+    headers = {"Host": host_header, "Accept": "image/*", "User-Agent": "ds41-api"}
     try:
         with httpcore.ConnectionPool(max_connections=1,
                                      network_backend=_pinned_backend(host, addresses, deadline)) as pool:
-            with pool.stream("GET", url, headers={"Accept": "image/*", "User-Agent": "ds41-api"},
-                             extensions={"timeout": timeouts}) as response:
+            with pool.stream("GET", request_url, headers=headers, extensions={"timeout": timeouts}) as response:
                 if 300 <= response.status < 400:
                     raise ValueError("image URL redirects; send the final URL or the image data")
                 if response.status != 200:
