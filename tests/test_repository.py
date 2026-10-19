@@ -74,7 +74,9 @@ class SourceTests(unittest.TestCase):
 
     def test_no_machine_paths(self):
         for p in ROOT.rglob('*'):
+            # config.local.json is the user's own (gitignored) settings file and holds their checkpoint path.
             if (p.is_file() and '.git' not in p.parts and p.suffix in ('.py', '.sh', '.md', '.json', '.txt', '.c')
+                    and p.relative_to(ROOT) != Path('config.local.json')
                     and not {'models', 'build', 'generated', '.venv', '.venv-assets', 'results'} & set(p.parts)):
                 text = p.read_text(errors='ignore')
                 for needle in ('/home/' + 'user', 'tail' + '3887', '/Us' + 'ers/'):
