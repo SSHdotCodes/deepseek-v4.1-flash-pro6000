@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import unquote_to_bytes, urlparse
+from urllib.parse import quote, unquote_to_bytes, urlparse, urlsplit, urlunsplit
 
 from .backend import ImagePayload
 
@@ -196,22 +196,78 @@ def _public_addresses(host: str, port: int, deadline: float) -> List[str]:
     return found
 
 
-def _pinned_backend(expected_host: str, addresses: List[str]):
+def _canonical_url(url: str) -> Tuple[str, str, int]:
+    """(ASCII URL, host, port): the hostname IDNA-encoded and the path and query percent-encoded, once, so
+    the host that is checked is the host that is connected to. URLs with credentials are refused."""
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("image URL must not contain credentials")
+    host = parts.hostname or ""
+    try:
+        port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("image URL has an invalid port") from exc
+    try:
+        ipaddress.ip_address(host)
+        netloc_host = f"[{host}]" if ":" in host else host
+    except ValueError:
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError("image URL has an invalid hostname") from exc
+        netloc_host = host
+    if not host:
+        raise ValueError("image URL has no host")
+    netloc = netloc_host + (f":{parts.port}" if parts.port else "")
+    path = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
+    query = quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
+    return urlunsplit((parts.scheme.lower(), netloc, path, query, "")), host, port
+
+
+def _pinned_backend(expected_host: str, addresses: List[str], deadline: float):
     """httpcore's socket backend, connecting only to the checked addresses: no second DNS lookup, so the
     host cannot resolve to a private address between the check and the connection. TLS still verifies the
-    certificate for the URL's host (httpcore passes it for SNI and checking)."""
+    certificate for the URL's host (httpcore passes it for SNI and checking). Every connect, TLS handshake,
+    read and write is bounded by the time left before the deadline, so no sequence of slow responses
+    (informational 1xx replies, slow headers or chunk framing) can outlast it."""
     import httpcore
 
+    def bounded(timeout):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise httpcore.ReadTimeout("image download took too long")
+        return left if timeout is None else min(timeout, left)
+
+    class DeadlineStream(httpcore.NetworkStream):
+        # httpcore passes these arguments by keyword: the names follow its NetworkStream.
+        def __init__(self, stream):
+            self._stream = stream
+
+        def read(self, max_bytes, timeout=None):
+            return self._stream.read(max_bytes, bounded(timeout))
+
+        def write(self, buffer, timeout=None):
+            self._stream.write(buffer, bounded(timeout))
+
+        def close(self):
+            self._stream.close()
+
+        def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            return DeadlineStream(self._stream.start_tls(ssl_context, server_hostname, bounded(timeout)))
+
+        def get_extra_info(self, info):
+            return self._stream.get_extra_info(info)
+
     class PinnedBackend(httpcore.SyncBackend):
-        # httpcore calls this with keyword arguments: the parameter names must match its NetworkBackend.
         def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
             if host.strip("[]").lower() != expected_host.lower():
                 raise httpcore.ConnectError(f"unexpected host {host!r}")
             error: Optional[Exception] = None
-            for address in addresses:
+            for address in addresses:  # a refused or timed-out address falls through to the next one
                 try:
-                    return super().connect_tcp(address, port, timeout, local_address, socket_options)
-                except httpcore.ConnectError as exc:
+                    stream = super().connect_tcp(address, port, bounded(timeout), local_address, socket_options)
+                    return DeadlineStream(stream)
+                except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                     error = exc
             raise error or httpcore.ConnectError("no address")
 
@@ -223,18 +279,13 @@ def _fetch(url: str, deadline: float) -> bytes:
     MAX_IMAGE_BYTES, finished before the deadline."""
     import httpcore
 
-    parsed = urlparse(url)
-    host = parsed.hostname or ""
-    try:
-        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
-    except ValueError as exc:
-        raise ValueError("image URL has an invalid port") from exc
+    url, host, port = _canonical_url(url)
     addresses = _public_addresses(host, port, deadline)
     step = min(REMOTE_TIMEOUT_S, _remaining(deadline))
     timeouts = {"connect": step, "read": step, "write": step, "pool": step}
     try:
         with httpcore.ConnectionPool(max_connections=1,
-                                     network_backend=_pinned_backend(host, addresses)) as pool:
+                                     network_backend=_pinned_backend(host, addresses, deadline)) as pool:
             with pool.stream("GET", url, headers={"Accept": "image/*", "User-Agent": "ds41-api"},
                              extensions={"timeout": timeouts}) as response:
                 if 300 <= response.status < 400:
@@ -246,10 +297,11 @@ def _fetch(url: str, deadline: float) -> bytes:
                     data += chunk
                     if len(data) > MAX_IMAGE_BYTES:
                         raise ValueError("image exceeds 32 MiB")
-                    _remaining(deadline)
                 return bytes(data)
-    except (httpcore.TimeoutException, httpcore.NetworkError, httpcore.ProtocolError, httpcore.UnsupportedProtocol,
-            ssl.SSLError, OSError) as exc:
+    except httpcore.TimeoutException as exc:
+        raise ValueError("image download took too long") from exc
+    except (httpcore.NetworkError, httpcore.ProtocolError, httpcore.UnsupportedProtocol, ssl.SSLError, OSError,
+            TypeError) as exc:
         raise ValueError(f"cannot download image URL ({type(exc).__name__})") from exc
 
 

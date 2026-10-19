@@ -165,6 +165,8 @@ def test_remote_hosts_must_resolve_to_public_addresses(monkeypatch):
 
 
 def test_connection_goes_only_to_the_checked_addresses(monkeypatch):
+    import time
+
     import httpcore
 
     from ds41_api import vision
@@ -172,11 +174,78 @@ def test_connection_goes_only_to_the_checked_addresses(monkeypatch):
     dialed = []
     monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp",
                         lambda self, host, port, *a, **k: dialed.append((host, port)) or "stream")
-    backend = vision._pinned_backend("images.example", ["93.184.215.14"])
-    assert backend.connect_tcp(host="images.example", port=443, timeout=5.0) == "stream"  # httpcore uses keywords
+    backend = vision._pinned_backend("images.example", ["93.184.215.14"], time.monotonic() + 5)
+    stream = backend.connect_tcp(host="images.example", port=443, timeout=5.0)  # httpcore passes keywords
+    assert stream._stream == "stream"
     assert dialed == [("93.184.215.14", 443)]  # no second DNS lookup of the name
     with pytest.raises(httpcore.ConnectError):
         backend.connect_tcp("other.example", 443)
+
+
+def test_timed_out_address_falls_through_to_the_next(monkeypatch):
+    import time
+
+    import httpcore
+
+    from ds41_api import vision
+
+    dialed = []
+
+    def connect(self, host, port, timeout=None, *a):
+        dialed.append(host)
+        if host == "2001:db8::1":
+            raise httpcore.ConnectTimeout("blackholed")
+        return "stream"
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", connect)
+    backend = vision._pinned_backend("images.example", ["2001:db8::1", "93.184.215.14"], time.monotonic() + 5)
+    assert backend.connect_tcp(host="images.example", port=443)._stream == "stream"
+    assert dialed == ["2001:db8::1", "93.184.215.14"]
+
+
+def test_deadline_bounds_endless_informational_responses(monkeypatch):
+    """A server that answers 103 Early Hints forever, each within the per-read timeout, still hits the
+    request deadline: every socket read is bounded by the time left (real httpcore parser, fake clock)."""
+    import httpcore
+
+    from ds41_api import vision
+
+    clock = [1000.0]
+    monkeypatch.setattr(vision.time, "monotonic", lambda: clock[0])
+    reads = []
+
+    class EarlyHints(httpcore.NetworkStream):
+        def read(self, max_bytes, timeout=None):
+            reads.append(timeout)
+            clock[0] += 19.0  # each reply lands just inside a 20 s read timeout
+            return b"HTTP/1.1 103 Early Hints\r\nLink: </x.css>\r\n\r\n"
+
+        def write(self, buffer, timeout=None):
+            pass
+
+        def close(self):
+            pass
+
+        def get_extra_info(self, info):
+            return None
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", lambda self, *a, **k: EarlyHints())
+    with pytest.raises(ValueError, match="too long"):
+        vision._fetch("http://8.8.8.8/x.png", clock[0] + 60)
+    assert len(reads) <= 4 and all(r <= 20 for r in reads)
+    assert reads[-1] < 19  # the last read only got the time that was left
+
+
+def test_urls_are_canonicalized_before_the_host_check():
+    from ds41_api import vision
+
+    assert vision._canonical_url("http://8.8.8.8/猫.png") == ("http://8.8.8.8/%E7%8C%AB.png", "8.8.8.8", 80)
+    assert vision._canonical_url("https://Bücher.example/a b.png?q=ä") == (
+        "https://xn--bcher-kva.example/a%20b.png?q=%C3%A4", "xn--bcher-kva.example", 443)
+    with pytest.raises(ValueError, match="credentials"):
+        vision._canonical_url("http://user:pw@images.example/x.png")
+    with pytest.raises(ValueError, match="port"):
+        vision._canonical_url("http://images.example:99999/x.png")
 
 
 def test_source_pixel_limit():

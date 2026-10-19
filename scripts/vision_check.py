@@ -15,6 +15,7 @@ import argparse
 import importlib.util
 import io
 import json
+import math
 import struct
 import subprocess
 import sys
@@ -168,6 +169,7 @@ def main():
                     refs[backend] = aligner(vit(x, nh, nw), nh, nw).float().cpu()
         engine = torch.frombuffer(bytearray(Path(item["out"]).read_bytes()), dtype=torch.bfloat16)
         engine = engine.reshape(lh * lw, 5120).float()
+        row["engine_finite"] = bool(torch.isfinite(engine).all())
         row["engine_vs_flash"] = compare(engine, refs["flash"])
         row["engine_vs_math"] = compare(engine, refs["math"])
         row["math_vs_flash"] = compare(refs["math"], refs["flash"])
@@ -182,9 +184,12 @@ def main():
         "worst_reference_backend_relative_error": floor,
         "min_engine_row_cosine": min(r["engine_vs_flash"]["min_row_cosine"] for r in rows),
     }
-    # Pass: identical patches, and the encoder no further from the reference than twice the reference's own
-    # flash-vs-math spread (finite values only: NaN fails every comparison).
-    summary["passed"] = bool(summary["preprocessing_identical"] and worst <= 2 * floor)
+    # Pass: identical patches, finite encoder output and metrics on every image, and the encoder no further from
+    # the reference than twice the reference's own flash-vs-math spread.
+    finite = all(r["engine_finite"] and all(math.isfinite(r[k][m]) for k in ("engine_vs_flash", "math_vs_flash")
+                                            for m in ("relative_error", "min_row_cosine")) for r in rows)
+    summary["all_finite"] = finite
+    summary["passed"] = bool(summary["preprocessing_identical"] and finite and worst <= 2 * floor)
     print(json.dumps(summary))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
