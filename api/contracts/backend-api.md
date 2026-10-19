@@ -25,9 +25,12 @@ SamplingParams:
     seed: int | None = None        # deterministic decoding when set
     logprobs: int = 0              # 0 = off; k>0 = per-token logprob + top-k
 
-ImagePayload:                      # pass-through; engine owns vision preprocessing
-    data: bytes | None             # raw image bytes (base64 on the socket wire)
-    url: str | None                # or a source the engine resolves (http(s), data:, file)
+VisionImage:                       # one image span of the prompt (ds41_api/vision.py)
+    start: int                     # position of IMAGE_START in token_ids
+    n_vit_h, n_vit_w: int          # ViT patch grid (14-pixel patches)
+    n_llm_h, n_llm_w: int          # token grid, ceil(n_vit / 3)
+    pixels: bytes                  # RGB, n_vit_h*14 rows of n_vit_w*14 pixels, resized and padded
+                                   # like inference/image_processor.load_image (base64 on the wire)
 
 Usage:
     prompt_tokens: int
@@ -41,7 +44,7 @@ Usage:
 ```
 submit(token_ids: sequence[int],
        sampling: SamplingParams,
-       images: sequence[ImagePayload] | None = None,
+       images: sequence[VisionImage] | None = None,
        conversation_id: str | None = None,
        request_id: str | None = None
 ) -> BackendStream
@@ -101,7 +104,8 @@ Request id is chosen by the client (UUID4 recommended).
 
 ```
 -> {"op": "submit", "request_id": "...", "token_ids": [...], "sampling": {...},
-    "images": [{"data": "<base64>"|"null", "url": "..."}], "conversation_id": "..."}
+    "images": [{"start": 33, "n_vit_h": 43, "n_vit_w": 58, "n_llm_h": 15, "n_llm_w": 20,
+                "pixels": "<base64>"}], "conversation_id": "..."}
 <- {"type": "token", ...}
 <- {"type": "finish", ...}
 -> {"op": "cancel", "request_id": "..."}
@@ -110,6 +114,9 @@ Request id is chosen by the client (UUID4 recommended).
 - The engine may send `{"type": "finish", ...}` at any time (e.g. engine error).
 - A connection close without a finish event is a transport error; clients must surface it.
 - `images` may be omitted/null. Empty `token_ids` is invalid.
+- Each image's span, `[IMAGE_START] + ([IMAGE] * n_llm_w + [IMAGE_NEW_LINE]) * n_llm_h + [IMAGE_END]`, holds
+  the image token id (129264) at every position of `token_ids`, as `prepare_vl_inputs` builds it. Spans are
+  sorted and disjoint. The engine rejects images in `score` requests.
 
 ## Versioning
 

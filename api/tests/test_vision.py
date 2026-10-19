@@ -77,3 +77,65 @@ def test_sources():
 def test_wire_round_trip():
     img = VisionImage(7, 40, 41, 14, 14, bytes(range(256)) * 3)
     assert VisionImage.from_dict(img.to_dict()) == img
+
+
+class ImageTokenizer:
+    """Character tokenizer that, like tokenizer.json, maps the image placeholder to image_token_id."""
+
+    def __init__(self):
+        from ds41_api.encoder import CharTokenizer
+        from ds41_api.encoding import IMAGE_PLACEHOLDER
+
+        self.chars, self.placeholder = CharTokenizer(), IMAGE_PLACEHOLDER
+
+    def encode(self, text, add_special_tokens=False):
+        ids = []
+        for i, part in enumerate(text.split(self.placeholder)):
+            if i:
+                ids.append(IMG)
+            ids += self.chars.encode(part).ids
+        return type("E", (), {"ids": ids, "tokens": []})()
+
+    def decode(self, ids, skip_special_tokens=False):
+        return self.chars.decode(ids)
+
+
+@pytest.mark.parametrize("endpoint", ["chat", "messages", "responses"])
+def test_every_endpoint_sends_prepared_images(endpoint):
+    from fastapi.testclient import TestClient
+
+    from ds41_api.encoder import Encoder
+    from ds41_api.fake_backend import FakeBackend
+    from ds41_api.server import create_app
+
+    tokenizer = ImageTokenizer()
+    backend = FakeBackend(tokenizer=tokenizer)
+    backend.add_script("ok") if hasattr(backend, "add_script") else None
+    client = TestClient(create_app(backend, Encoder(tokenizer, VisionConfig())))
+    raw = png(400, 300)
+    url = "data:image/png;base64," + base64.b64encode(raw).decode()
+    if endpoint == "chat":
+        r = client.post("/v1/chat/completions", json={"model": "deepseek-v4.1-flash-1017", "max_tokens": 4, "messages": [
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": url}}, {"type": "text", "text": "hi"}]}]})
+    elif endpoint == "messages":
+        r = client.post("/v1/messages", json={"model": "deepseek-v4.1-flash-1017", "max_tokens": 4, "messages": [
+            {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                     "data": base64.b64encode(raw).decode()}},
+                                         {"type": "text", "text": "hi"}]}]})
+        count = client.post("/v1/messages/count_tokens", json={"model": "deepseek-v4.1-flash-1017", "messages": [
+            {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                                     "data": base64.b64encode(raw).decode()}},
+                                         {"type": "text", "text": "hi"}]}]})
+        assert count.status_code == 200
+    else:
+        r = client.post("/v1/responses", json={"model": "deepseek-v4.1-flash-1017", "max_output_tokens": 4, "input": [
+            {"type": "message", "role": "user", "content": [{"type": "input_image", "image_url": url}, {"type": "input_text", "text": "hi"}]}]})
+    assert r.status_code == 200, r.text
+    sent = backend.submitted[-1]
+    (img,) = sent["images"]
+    assert isinstance(img, VisionImage)
+    span = num_image_tokens(img.n_llm_h, img.n_llm_w)
+    assert sent["token_ids"][img.start:img.start + span] == [IMG] * span
+    assert sent["token_ids"].count(IMG) == span
+    if endpoint == "messages":
+        assert count.json()["input_tokens"] >= span

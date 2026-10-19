@@ -158,6 +158,23 @@ def image_payload(record: Dict[str, Any]) -> ImagePayload:
     the engine to fetch/decode. Documented gap: the server never fetches
     remote URLs itself.
     """
+    # Anthropic blocks carry a source object: {"type": "base64", "data": ...} or {"type": "url", "url": ...}
+    # (official image_processor.load_image_bytes reads them the same way).
+    source = record.get("source")
+    if isinstance(source, dict):
+        if source.get("data") is not None:
+            try:
+                return ImagePayload(data=base64.b64decode(source["data"]))
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError(f"undecodable base64 image source: {exc}") from exc
+        if source.get("url"):
+            record = {"url": source["url"]}
+    data = record.get("data")
+    if isinstance(data, str) and data:
+        try:
+            return ImagePayload(data=base64.b64decode(data))
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError(f"undecodable base64 image data: {exc}") from exc
     url = record.get("url")
     if isinstance(url, str) and url.startswith("data:"):
         m = _DATA_URI_RE.match(url)

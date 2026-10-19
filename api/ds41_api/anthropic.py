@@ -34,6 +34,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from .backend import Backend
 from .core import _safe_cancel, build_submission, run_generation
+from .vision import expand_prompt_async
 from .encoder import Encoder
 from .schemas import ChatCompletionRequest
 
@@ -430,8 +431,10 @@ def register_anthropic(
             # Same shape as /v1/messages (no generation happens here).
             chat_request = parse_anthropic_request({**body, "max_tokens": 1, "stream": False},
                                                    cfg.max_tokens_limit)
-            prompt, _ = encoder.build_prompt(chat_request)
+            prompt, images = encoder.build_prompt(chat_request)
             token_ids = encoder.encode_prompt(prompt)
+            if images:
+                token_ids, _ = await expand_prompt_async(token_ids, images, encoder.vision)
         except AnthropicError:
             raise
         except (ValueError, AssertionError) as exc:

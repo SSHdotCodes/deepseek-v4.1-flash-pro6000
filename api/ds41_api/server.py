@@ -44,6 +44,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from . import encoding as enc
 from .backend import Backend, FinishEvent, SamplingParams, TokenEvent
 from .encoder import CharTokenizer, DEFAULT_MODEL_ID, Encoder
+from .vision import expand_prompt_async
 from .fake_backend import FakeBackend
 from .parser import StreamParser
 from .schemas import ChatCompletionRequest, resolve_thinking_mode
@@ -53,7 +54,7 @@ from .timing import TimingCollector
 
 @dataclass
 class ServerConfig:
-    max_body_bytes: int = 10 * 1024 * 1024
+    max_body_bytes: int = 64 * 1024 * 1024  # base64 images (each at most 32 MiB decoded)
     # The engine (ds41d) is single-stream: one generation at a time, others
     # queue. 429 when the queue is full or a request waits too long.
     max_concurrent: int = 1
@@ -183,6 +184,11 @@ def create_app(
             thinking_mode = resolve_thinking_mode(request.thinking)
             _validate_max_tokens(request.resolved_max_tokens())
             prompt, images = encoder.build_prompt(request)
+            token_ids = encoder.encode_prompt(prompt)
+            prepared = None
+            if images:
+                # Each image placeholder becomes the image's token span; the engine gets the resized pixels.
+                token_ids, prepared = await expand_prompt_async(token_ids, images, encoder.vision)
         except (ValueError, AssertionError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -190,7 +196,6 @@ def create_app(
         collector = TimingCollector()
         collector.waited_in_queue(waited)
 
-        token_ids = encoder.encode_prompt(prompt)
         eos_id = encoder.token_id(enc.eos_token)
         stop_token_ids = tuple(
             tid for tid in (eos_id,) if tid is not None
@@ -207,7 +212,7 @@ def create_app(
         stream = await backend.submit(
             token_ids,
             sampling,
-            images=images or None,
+            images=prepared or None,
             conversation_id=request.conversation_id,
             request_id=uuid.uuid4().hex,
         )
