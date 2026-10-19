@@ -37,6 +37,9 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(len(c['origin_commit']), 40)
             for name in c['release_build_files']:
                 self.assertTrue(name.endswith(('CMakeLists.txt', 'build.sh')), name)
+            # Source edits made in this repo (image input) are listed, never silent.
+            for name in c.get('release_source_changes', []):
+                self.assertIn(name, files, c['path'])
         for dep in lock['dependencies'].values():
             self.assertEqual(len(dep['sha256']), 64)
 

@@ -10,17 +10,23 @@ Greedy (temperature 0), thinking off. Checks:
   swap       same text, a different image of the same size: the cached image is not reused
   anthropic  the same color question through /v1/messages with a base64 source
 
-  .venv/bin/python scripts/vision_e2e.py --weights <checkpoint> [--port 18087] [--out results/vision-e2e.json]
+  .venv/bin/python scripts/vision_e2e.py [--out results/vision-e2e.json]
+
+The checkpoint, port and model ID default to config.local.json (or config.example.json).
 """
 import argparse
 import base64
 import io
 import json
+import sys
 import time
 import urllib.request
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+sys.dont_write_bytecode = True
+import run  # noqa: E402
 
 
 def png(img):
@@ -73,10 +79,11 @@ def cached(usage):
 
 
 def main():
+    cfg = run.configuration()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--weights", type=Path, required=True)
-    ap.add_argument("--port", type=int, default=18087)
-    ap.add_argument("--model", default="deepseek-v4.1-flash-1017")
+    ap.add_argument("--weights", type=Path, default=Path(cfg["weights"]))
+    ap.add_argument("--port", type=int, default=cfg["port"])
+    ap.add_argument("--model", default=cfg["model_id"])
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
     c = Client(args.port, args.model)

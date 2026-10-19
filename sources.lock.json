@@ -11,8 +11,19 @@
       "release_build_files": [
         "CMakeLists.txt"
       ],
-      "files": 71,
-      "tree_sha256": "19387ebf8fe193e216282c3d6e57a5d234ec428463e8ae753121c25f8ade10dc"
+      "release_source_changes": [
+        "include/ds41/engine.hpp",
+        "include/ds41/vision.hpp",
+        "src/forward.cu",
+        "src/prefill/batch.inc",
+        "src/prefill/chunk.inc",
+        "src/prefill/native.inc",
+        "src/server.cpp",
+        "src/vision.cu",
+        "tests/vision_probe.cpp"
+      ],
+      "files": 74,
+      "tree_sha256": "f966d2f7bcd13060e5ccf973976d0e4721adb55d9525e6e9bd20c2410f915449"
     },
     {
       "path": "components/moe",
@@ -102,5 +113,5 @@
     "driver": "615.71.09",
     "gpu": "RTX PRO 6000 Blackwell Workstation Edition (sm_120a)"
   },
-  "note": "Each component tree is extracted unchanged from its origin commit in the project's private development repositories, except the files in release_build_files: CMake/build scripts written or edited so the tree builds standalone (install rules, component paths, no machine paths). tree_sha256 covers the tree as shipped; origin_tree_sha256 the tree as extracted."
+  "note": "Each component tree is extracted unchanged from its origin commit in the project's private development repositories, except the files in release_build_files: CMake/build scripts written or edited so the tree builds standalone (install rules, component paths, no machine paths), and the engine files in release_source_changes: image input, added in this repo (docs/engine.md#images). tree_sha256 covers the tree as shipped; origin_tree_sha256 the tree as extracted."
 }

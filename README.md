@@ -5,6 +5,7 @@
 - a 1,048,576-token context;
 - thinking with `low` / `high` / `max` reasoning effort;
 - tool calls;
+- images, through the checkpoint's own vision tower;
 - speculative decoding with the checkpoint's own MTP layers;
 - OpenAI Chat Completions, Anthropic Messages and OpenAI Responses APIs.
 
@@ -73,6 +74,8 @@ Port 18087 serves:
 - Anthropic Messages, at `/v1/messages` and `/v1/messages/count_tokens`, with thinking blocks and tool use;
 - OpenAI Responses, at `/v1/responses`.
 
+Each API takes images in its own format: chat `image_url`, Responses `input_image`, Anthropic `image` blocks with a base64 or URL source. Send them as `data:` URLs or base64, or as public http(s) URLs, which the server fetches. It refuses local paths and private addresses. An image costs up to 1,024 prompt tokens (184 for 512 x 512, 496 for 1024 x 768), and a request may carry up to 16 ([images](docs/engine.md#images)).
+
 Defaults:
 
 - Thinking is on, at `high`. `reasoning_effort` takes `low`, `high` or `max` (the encoding's 50, 75 and 100); `"thinking": false` answers directly. Anthropic `thinking.budget_tokens` maps to the same three levels.
@@ -87,9 +90,10 @@ python3 scripts/run.py stop
 python3 scripts/benchmark.py --seeds 21 22 --out results/bench.json     # about 6 minutes
 python3 scripts/run.py start
 .venv/bin/python scripts/api_check.py --out results/api-check.json     # API checks and prompt timings
+.venv/bin/python scripts/vision_e2e.py --out results/vision-e2e.json    # image answers, prefix reuse
 ```
 
-`benchmark.py` starts its own engine with the service's exact command and runs the six fixed prompts in `benchmarks/cases`, plus a warm-up, once per seed. It records time to first token, decode rate and a SHA-256 of every token sequence. Sampling is seeded and exact, so on the same GPU, driver and build the tokens should equal [ours](benchmarks/results-20261018.json); the script reports how many match. `api_check.py` checks every API surface (chat, streaming, reasoning effort, tool calls and round trips, Anthropic messages and tools, `count_tokens`, Responses) and times cold 2K, 8K and 32K-token prompts and a follow-up turn. GitHub CI runs the repository tests, the API tests and script checks; CUDA and model checks need the GPU.
+`benchmark.py` starts its own engine with the service's exact command and runs the six fixed prompts in `benchmarks/cases`, plus a warm-up, once per seed. It records time to first token, decode rate and a SHA-256 of every token sequence. Sampling is seeded and exact, so on the same GPU, driver and build the tokens should equal [ours](benchmarks/results-20261018.json); the script reports how many match. `api_check.py` checks every API surface (chat, streaming, reasoning effort, tool calls and round trips, Anthropic messages and tools, `count_tokens`, Responses) and times cold 2K, 8K and 32K-token prompts and a follow-up turn. `vision_e2e.py` asks about generated images and the checkpoint's example photo and checks prefix reuse with images ([results](benchmarks/vision-20261018)). GitHub CI runs the repository tests, the API tests and script checks; CUDA and model checks need the GPU.
 
 ## How it works
 
