@@ -408,6 +408,10 @@ def register_responses(
         except (ValueError, AssertionError) as exc:
             slot.release()
             raise ResponsesError(400, str(exc)) from exc
+        except BaseException:
+            # Any other failure (or cancellation) before the response owns the slot must free it.
+            slot.release()
+            raise
 
         if chat_request.stream:
             return StreamingResponse(

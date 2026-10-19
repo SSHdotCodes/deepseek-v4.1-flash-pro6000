@@ -13,11 +13,15 @@ image_processor.py (MIT, DeepSeek) with `args` replaced by VisionConfig.
 import asyncio
 import base64
 import binascii
+import concurrent.futures
 import io
 import ipaddress
 import json
 import math
 import socket
+import ssl
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -27,7 +31,17 @@ from .backend import ImagePayload
 
 MAX_IMAGES = 16
 MAX_IMAGE_BYTES = 32 << 20
+# Decoded size limit, checked from the header before decoding: a small PNG can expand to gigabytes.
+MAX_SOURCE_PIXELS = 64_000_000
+# Wall-clock limits for remote images: one URL, and all of a request's images together.
 REMOTE_TIMEOUT_S = 20.0
+REQUEST_BUDGET_S = 60.0
+# Images being decoded at once across all requests (each can take a few hundred MB while it is resized);
+# a request waits up to PREPARE_WAIT_S for its turn.
+MAX_PREPARING = 2
+PREPARE_WAIT_S = 60.0
+_PREPARING = threading.BoundedSemaphore(MAX_PREPARING)
+_RESOLVER = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="ds41-image-dns")
 
 
 @dataclass(frozen=True)
@@ -149,40 +163,101 @@ def plan_image_grid(width: int, height: int, cfg: VisionConfig):
 # -- loading ---------------------------------------------------------------------------------------
 
 
-def _public_host(host: str) -> bool:
+def _remaining(deadline: float) -> float:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise ValueError("image download took too long")
+    return left
+
+
+def _public_addresses(host: str, port: int, deadline: float) -> List[str]:
+    """The host's addresses from one lookup. Every one must be public: no loopback, private, link-local,
+    reserved or IPv4-mapped private address. The connection then goes only to these addresses."""
     try:
-        infos = socket.getaddrinfo(host, None)
-    except OSError:
-        return False
-    for info in infos:
-        address = ipaddress.ip_address(info[4][0])
+        literal = ipaddress.ip_address(host)
+        found = [str(literal)]
+    except ValueError:
+        lookup = _RESOLVER.submit(socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM)
+        try:
+            infos = lookup.result(timeout=_remaining(deadline))
+        except concurrent.futures.TimeoutError as exc:
+            raise ValueError("image download took too long") from exc
+        except OSError as exc:
+            raise ValueError(f"image URL host does not resolve: {host!r}") from exc
+        found = list(dict.fromkeys(info[4][0] for info in infos))
+    if not found:
+        raise ValueError(f"image URL host does not resolve: {host!r}")
+    for text in found:
+        address = ipaddress.ip_address(text)
+        if address.version == 6 and address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
         if not address.is_global:
-            return False
-    return bool(infos)
+            raise ValueError(f"image URL host is not a public address: {host!r}")
+    return found
 
 
-def _fetch(url: str) -> bytes:
-    import httpx
+def _pinned_backend(expected_host: str, addresses: List[str]):
+    """httpcore's socket backend, connecting only to the checked addresses: no second DNS lookup, so the
+    host cannot resolve to a private address between the check and the connection. TLS still verifies the
+    certificate for the URL's host (httpcore passes it for SNI and checking)."""
+    import httpcore
 
-    host = urlparse(url).hostname or ""
-    if not _public_host(host):
-        raise ValueError(f"image URL host is not a public address: {host!r}")
-    with httpx.Client(timeout=REMOTE_TIMEOUT_S, follow_redirects=False) as client:
-        with client.stream("GET", url) as response:
-            if response.is_redirect:
-                raise ValueError("image URL redirects; send the final URL or the image data")
-            response.raise_for_status()
-            data = bytearray()
-            for chunk in response.iter_bytes():
-                data += chunk
-                if len(data) > MAX_IMAGE_BYTES:
-                    raise ValueError("image exceeds 32 MiB")
-            return bytes(data)
+    class PinnedBackend(httpcore.SyncBackend):
+        # httpcore calls this with keyword arguments: the parameter names must match its NetworkBackend.
+        def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+            if host.strip("[]").lower() != expected_host.lower():
+                raise httpcore.ConnectError(f"unexpected host {host!r}")
+            error: Optional[Exception] = None
+            for address in addresses:
+                try:
+                    return super().connect_tcp(address, port, timeout, local_address, socket_options)
+                except httpcore.ConnectError as exc:
+                    error = exc
+            raise error or httpcore.ConnectError("no address")
+
+    return PinnedBackend()
 
 
-def image_bytes(payload: ImagePayload, cfg: VisionConfig) -> bytes:
+def _fetch(url: str, deadline: float) -> bytes:
+    """GET one public http(s) image URL: no redirects, no proxies from the environment, at most
+    MAX_IMAGE_BYTES, finished before the deadline."""
+    import httpcore
+
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    try:
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("image URL has an invalid port") from exc
+    addresses = _public_addresses(host, port, deadline)
+    step = min(REMOTE_TIMEOUT_S, _remaining(deadline))
+    timeouts = {"connect": step, "read": step, "write": step, "pool": step}
+    try:
+        with httpcore.ConnectionPool(max_connections=1,
+                                     network_backend=_pinned_backend(host, addresses)) as pool:
+            with pool.stream("GET", url, headers={"Accept": "image/*", "User-Agent": "ds41-api"},
+                             extensions={"timeout": timeouts}) as response:
+                if 300 <= response.status < 400:
+                    raise ValueError("image URL redirects; send the final URL or the image data")
+                if response.status != 200:
+                    raise ValueError(f"image URL returned HTTP {response.status}")
+                data = bytearray()
+                for chunk in response.iter_stream():
+                    data += chunk
+                    if len(data) > MAX_IMAGE_BYTES:
+                        raise ValueError("image exceeds 32 MiB")
+                    _remaining(deadline)
+                return bytes(data)
+    except (httpcore.TimeoutException, httpcore.NetworkError, httpcore.ProtocolError, httpcore.UnsupportedProtocol,
+            ssl.SSLError, OSError) as exc:
+        raise ValueError(f"cannot download image URL ({type(exc).__name__})") from exc
+
+
+def image_bytes(payload: ImagePayload, cfg: VisionConfig, deadline: Optional[float] = None) -> bytes:
     """Raw image file bytes from inline data, a data: URL, or (if allowed) an http(s) URL. Local paths are
     refused: the official encoder turns <image>path</image> text into image records."""
+    if deadline is None:
+        deadline = time.monotonic() + REMOTE_TIMEOUT_S
     if payload.data:
         data = payload.data
     elif payload.url:
@@ -197,7 +272,7 @@ def image_bytes(payload: ImagePayload, cfg: VisionConfig) -> bytes:
         elif scheme in ("http", "https"):
             if not cfg.allow_remote:
                 raise ValueError("remote image URLs are disabled; send the image as a data: URL or base64")
-            data = _fetch(url)
+            data = _fetch(url, deadline)
         else:
             raise ValueError("image URL must be a data: or http(s) URL")
     else:
@@ -214,6 +289,8 @@ def load_image(raw: bytes, cfg: VisionConfig) -> Tuple[bytes, int, int, int, int
     p = cfg.patch_size
     try:
         with Image.open(io.BytesIO(raw)) as source:
+            if source.width * source.height > MAX_SOURCE_PIXELS:
+                raise ValueError(f"image is {source.width}x{source.height}; at most {MAX_SOURCE_PIXELS:,} pixels")
             image = source.convert("RGB")
     except (OSError, Image.DecompressionBombError, ValueError) as exc:
         raise ValueError(f"cannot read image: {exc}") from exc
@@ -242,14 +319,24 @@ def expand_prompt(
         raise ValueError(f"found {placeholders} image placeholders but got {len(images)} images")
     out: List[int] = []
     prepared: List[VisionImage] = []
-    pending = iter(images)
-    for token in token_ids:
-        if token != cfg.image_token_id:
-            out.append(token)
-            continue
-        pixels, n_vit_h, n_vit_w, n_llm_h, n_llm_w = load_image(image_bytes(next(pending), cfg), cfg)
-        prepared.append(VisionImage(len(out), n_vit_h, n_vit_w, n_llm_h, n_llm_w, pixels))
-        out += [cfg.image_token_id] * num_image_tokens(n_llm_h, n_llm_w)
+    if not images:
+        return list(token_ids), prepared
+    if not _PREPARING.acquire(timeout=PREPARE_WAIT_S):
+        raise ValueError("the server is busy preparing other images; try again")
+    try:
+        deadline = time.monotonic() + REQUEST_BUDGET_S
+        pending = iter(images)
+        for token in token_ids:
+            if token != cfg.image_token_id:
+                out.append(token)
+                continue
+            raw = image_bytes(next(pending), cfg, deadline)
+            pixels, n_vit_h, n_vit_w, n_llm_h, n_llm_w = load_image(raw, cfg)
+            del raw
+            prepared.append(VisionImage(len(out), n_vit_h, n_vit_w, n_llm_h, n_llm_w, pixels))
+            out += [cfg.image_token_id] * num_image_tokens(n_llm_h, n_llm_w)
+    finally:
+        _PREPARING.release()
     return out, prepared
 
 

@@ -60,7 +60,8 @@ def read_tensors(weights: Path, names):
 
 
 def test_images(weights: Path):
-    """The official example image plus synthetic pictures that exercise each resize branch."""
+    """The official example images plus synthetic pictures for the resize paths: upscaling, padding, the
+    token-budget shrink and its single-row / single-column fallbacks (the checkpoint sets no max_wh_ratio)."""
     images = {}
     for path in sorted((weights / "inference" / "examples").rglob("*")):
         if path.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
@@ -74,6 +75,8 @@ def test_images(weights: Path):
         "large-4032x3024": (4032, 3024),    # over 1024 tokens: shrunk by solve_resize_ratio
         "wide-3000x200": (3000, 200),
         "tall-200x3000": (200, 3000),
+        "extreme-wide-60000x20": (60000, 20),   # solve_resize_ratio: collapses to one token row
+        "extreme-tall-20x60000": (20, 60000),   # solve_resize_ratio: collapses to one token column
     }.items():
         y, x = np.mgrid[0:h, 0:w]
         base = np.stack([(x * 255 // max(w - 1, 1)), (y * 255 // max(h - 1, 1)), ((x + y) * 7) % 256], -1)
@@ -179,11 +182,16 @@ def main():
         "worst_reference_backend_relative_error": floor,
         "min_engine_row_cosine": min(r["engine_vs_flash"]["min_row_cosine"] for r in rows),
     }
+    # Pass: identical patches, and the encoder no further from the reference than twice the reference's own
+    # flash-vs-math spread (finite values only: NaN fails every comparison).
+    summary["passed"] = bool(summary["preprocessing_identical"] and worst <= 2 * floor)
     print(json.dumps(summary))
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps({"schema": "ds41-vision-check-v1", "summary": summary, "images": rows},
                                        indent=1) + "\n")
+    if not summary["passed"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

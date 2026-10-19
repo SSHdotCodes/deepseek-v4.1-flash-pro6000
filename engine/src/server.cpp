@@ -109,13 +109,15 @@ std::vector<ImageSpan> image_spans(const Json &op, const std::vector<int> &ids) 
     if (img.n_llm_h != (img.n_vit_h + 2) / 3 || img.n_llm_w != (img.n_vit_w + 2) / 3 ||
         img.tokens() > ImageSpan::max_tokens)
       throw std::invalid_argument("image grid does not match the vision geometry");
+    // Bounds before end(): start + tokens() must not overflow, so start is checked against the prompt first.
+    const int64_t prompt = int64_t(ids.size());
+    if (img.start < previous_end || img.start > prompt || img.tokens() > prompt - img.start)
+      throw std::invalid_argument("image spans must be sorted, disjoint and inside the prompt");
     if (!j.at("pixels").is_string())
       throw std::invalid_argument("image pixels must be a base64 string");
     img.pixels = base64_decode(j.at("pixels").get<std::string>());
     if (img.pixels.size() != size_t(img.n_vit_h) * 14 * img.n_vit_w * 14 * 3)
       throw std::invalid_argument("image pixels must be n_vit_h*14 rows of n_vit_w*14 RGB pixels");
-    if (img.start < previous_end || img.end() > int64_t(ids.size()))
-      throw std::invalid_argument("image spans must be sorted, disjoint and inside the prompt");
     for (int64_t pos = img.start; pos < img.end(); ++pos)
       if (ids[pos] != ImageSpan::token_id)
         throw std::invalid_argument("image span positions must hold the image token id");

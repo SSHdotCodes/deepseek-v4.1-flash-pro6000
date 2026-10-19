@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.5",
     "tokenizers>=0.19",
     "pillow>=10",
+    "httpcore>=1.0",  # remote image URLs (ds41_api.vision)
 ]
 
 [dependency-groups]

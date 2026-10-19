@@ -193,29 +193,34 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         slot, waited = await gate.acquire()
-        collector = TimingCollector()
-        collector.waited_in_queue(waited)
+        try:
+            collector = TimingCollector()
+            collector.waited_in_queue(waited)
 
-        eos_id = encoder.token_id(enc.eos_token)
-        stop_token_ids = tuple(
-            tid for tid in (eos_id,) if tid is not None
-        )
-        sampling = SamplingParams(
-            temperature=request.temperature,
-            top_p=request.top_p,
-            max_tokens=request.resolved_max_tokens(),
-            stop_token_ids=stop_token_ids,
-            seed=request.seed,
-            logprobs=request.resolved_logprobs(),
-        )
-        collector.submit_started()
-        stream = await backend.submit(
-            token_ids,
-            sampling,
-            images=prepared or None,
-            conversation_id=request.conversation_id,
-            request_id=uuid.uuid4().hex,
-        )
+            eos_id = encoder.token_id(enc.eos_token)
+            stop_token_ids = tuple(
+                tid for tid in (eos_id,) if tid is not None
+            )
+            sampling = SamplingParams(
+                temperature=request.temperature,
+                top_p=request.top_p,
+                max_tokens=request.resolved_max_tokens(),
+                stop_token_ids=stop_token_ids,
+                seed=request.seed,
+                logprobs=request.resolved_logprobs(),
+            )
+            collector.submit_started()
+            stream = await backend.submit(
+                token_ids,
+                sampling,
+                images=prepared or None,
+                conversation_id=request.conversation_id,
+                request_id=uuid.uuid4().hex,
+            )
+        except BaseException:
+            # The slot belongs to the response only once it exists.
+            slot.release()
+            raise
 
         if request.stream:
             return StreamingResponse(

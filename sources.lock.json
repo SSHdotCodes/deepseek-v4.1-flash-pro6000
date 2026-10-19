@@ -23,7 +23,7 @@
         "tests/vision_probe.cpp"
       ],
       "files": 74,
-      "tree_sha256": "f966d2f7bcd13060e5ccf973976d0e4721adb55d9525e6e9bd20c2410f915449"
+      "tree_sha256": "1f9c0790e3c95603eba1dcee6d7c4a69287d7b817f18513c914bfbe954f534b2"
     },
     {
       "path": "components/moe",

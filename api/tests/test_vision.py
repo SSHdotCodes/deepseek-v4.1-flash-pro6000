@@ -139,3 +139,108 @@ def test_every_endpoint_sends_prepared_images(endpoint):
     assert sent["token_ids"].count(IMG) == span
     if endpoint == "messages":
         assert count.json()["input_tokens"] >= span
+
+
+def test_remote_hosts_must_resolve_to_public_addresses(monkeypatch):
+    import socket
+    import time
+
+    from ds41_api import vision
+
+    deadline = time.monotonic() + 5
+    for literal in ["127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:10.0.0.1"]:
+        with pytest.raises(ValueError, match="public"):
+            vision._public_addresses(literal, 80, deadline)
+    assert vision._public_addresses("8.8.8.8", 80, deadline) == ["8.8.8.8"]
+
+    def mixed(host, port, family=0, type=0, *args):  # one public and one private answer
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", port)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.10", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", mixed)
+    with pytest.raises(ValueError, match="public"):
+        vision._public_addresses("images.example", 443, deadline)
+    with pytest.raises(ValueError, match="too long"):
+        vision._fetch("http://8.8.8.8/x.png", time.monotonic() - 1)
+
+
+def test_connection_goes_only_to_the_checked_addresses(monkeypatch):
+    import httpcore
+
+    from ds41_api import vision
+
+    dialed = []
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp",
+                        lambda self, host, port, *a, **k: dialed.append((host, port)) or "stream")
+    backend = vision._pinned_backend("images.example", ["93.184.215.14"])
+    assert backend.connect_tcp(host="images.example", port=443, timeout=5.0) == "stream"  # httpcore uses keywords
+    assert dialed == [("93.184.215.14", 443)]  # no second DNS lookup of the name
+    with pytest.raises(httpcore.ConnectError):
+        backend.connect_tcp("other.example", 443)
+
+
+def test_source_pixel_limit():
+    from ds41_api import vision
+
+    buffer = io.BytesIO()
+    Image.new("1", (10_000, 7_000)).save(buffer, format="PNG")  # 70 MP, a few kB compressed
+    assert len(buffer.getvalue()) < 1 << 20
+    with pytest.raises(ValueError, match="at most"):
+        vision.load_image(buffer.getvalue(), CFG)
+
+
+@pytest.mark.parametrize("failure", [ValueError("image URL returned HTTP 404"), RuntimeError("unexpected")])
+@pytest.mark.parametrize("endpoint", ["messages", "responses"])
+def test_failed_image_frees_the_generation_slot(monkeypatch, endpoint, failure):
+    """A request whose image fails (any exception) must not keep the only generation slot."""
+    from fastapi.testclient import TestClient
+
+    from ds41_api import vision
+    from ds41_api.encoder import Encoder
+    from ds41_api.fake_backend import FakeBackend
+    from ds41_api.server import ServerConfig, create_app
+
+    def broken(url, deadline):
+        raise failure
+
+    monkeypatch.setattr(vision, "_fetch", broken)
+    tokenizer = ImageTokenizer()
+    backend = FakeBackend(tokenizer=tokenizer)
+    backend.add_script("ok")
+    app = create_app(backend, Encoder(tokenizer, VisionConfig()), config=ServerConfig(queue_timeout=0.5))
+    client = TestClient(app, raise_server_exceptions=False)
+    url = "https://images.example/cat.png"
+    if endpoint == "messages":
+        r = client.post("/v1/messages", json={"model": "deepseek-v4.1-flash-1017", "max_tokens": 4, "messages": [
+            {"role": "user", "content": [{"type": "image", "source": {"type": "url", "url": url}},
+                                         {"type": "text", "text": "hi"}]}]})
+    else:
+        r = client.post("/v1/responses", json={"model": "deepseek-v4.1-flash-1017", "max_output_tokens": 4, "input": [
+            {"type": "message", "role": "user", "content": [{"type": "input_image", "image_url": url},
+                                                            {"type": "input_text", "text": "hi"}]}]})
+    assert r.status_code == (400 if isinstance(failure, ValueError) else 500)
+    after = client.post("/v1/chat/completions", json={"model": "deepseek-v4.1-flash-1017", "max_tokens": 4,
+                                                      "messages": [{"role": "user", "content": "hi"}]})
+    assert after.status_code == 200, after.text
+
+
+def test_malformed_anthropic_image_source_is_a_client_error():
+    from fastapi.testclient import TestClient
+
+    from ds41_api.encoder import Encoder
+    from ds41_api.fake_backend import FakeBackend
+    from ds41_api.server import ServerConfig, create_app
+
+    tokenizer = ImageTokenizer()
+    backend = FakeBackend(tokenizer=tokenizer)
+    backend.add_script("ok")
+    client = TestClient(create_app(backend, Encoder(tokenizer, VisionConfig()), config=ServerConfig(queue_timeout=0.5)),
+                        raise_server_exceptions=False)
+    body = {"model": "deepseek-v4.1-flash-1017", "max_tokens": 4, "messages": [
+        {"role": "user", "content": [{"type": "image", "source": {"type": "base64", "data": 1}},
+                                     {"type": "text", "text": "hi"}]}]}
+    assert client.post("/v1/messages", json=body).status_code == 400
+    assert client.post("/v1/messages/count_tokens", json=body).status_code == 400
+    after = client.post("/v1/chat/completions", json={"model": "deepseek-v4.1-flash-1017", "max_tokens": 4,
+                                                      "messages": [{"role": "user", "content": "hi"}]})
+    assert after.status_code == 200, after.text

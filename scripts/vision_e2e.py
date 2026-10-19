@@ -7,7 +7,8 @@ Greedy (temperature 0), thinking off. Checks:
   two        two images in one message, in order
   photo      the checkpoint's example photo (inference/examples/images), answer printed for review
   reuse      a follow-up turn on an image conversation reuses the cached prefix
-  swap       same text, a different image of the same size: the cached image is not reused
+  swap       same text, a different image of the same size: the cached image is not reused (cached tokens
+             stop before the image)
   anthropic  the same color question through /v1/messages with a base64 source
 
   .venv/bin/python scripts/vision_e2e.py [--out results/vision-e2e.json]
@@ -123,7 +124,8 @@ def main():
 
     purple = square((140, 30, 190), 640)
     answer3, usage3, s3 = c.chat([user("What is the color of this image? Answer with one word.", purple)])
-    record("swap", "purple" in answer3.lower() or "violet" in answer3.lower(), answer=answer3,
+    record("swap", ("purple" in answer3.lower() or "violet" in answer3.lower()) and cached(usage3) < 16,
+           answer=answer3,
            cached_tokens=cached(usage3), prompt_tokens=usage3["prompt_tokens"], seconds=s3)
 
     out = c.post("/v1/messages", {"model": args.model, "max_tokens": 32, "temperature": 0,
@@ -140,6 +142,8 @@ def main():
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps({"schema": "ds41-vision-e2e-v1", "passed": passed, "checks": results},
                                        indent=1) + "\n")
+    if passed < len(results):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

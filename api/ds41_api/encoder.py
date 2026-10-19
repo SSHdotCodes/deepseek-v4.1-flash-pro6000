@@ -153,22 +153,28 @@ _DATA_URI_RE = re.compile(r"^data:[^;,]*?(;base64)?,")
 def image_payload(record: Dict[str, Any]) -> ImagePayload:
     """Convert a reference encoder image record into a backend ImagePayload.
 
-    data: URIs are decoded to raw bytes; everything else (http(s) URLs, plain
-    base64 in `data`, Anthropic `source` blocks) is passed through as-is for
-    the engine to fetch/decode. Documented gap: the server never fetches
-    remote URLs itself.
+    data: URIs, plain base64 in `data` and Anthropic base64 sources are decoded
+    to raw bytes; http(s) URLs pass through for ds41_api.vision to fetch
+    (public addresses only). Fields of the wrong type are a ValueError.
     """
     # Anthropic blocks carry a source object: {"type": "base64", "data": ...} or {"type": "url", "url": ...}
     # (official image_processor.load_image_bytes reads them the same way).
     source = record.get("source")
     if isinstance(source, dict):
         if source.get("data") is not None:
+            if not isinstance(source["data"], str):
+                raise ValueError("image source data must be a base64 string")
             try:
                 return ImagePayload(data=base64.b64decode(source["data"]))
             except (binascii.Error, ValueError) as exc:
                 raise ValueError(f"undecodable base64 image source: {exc}") from exc
         if source.get("url"):
+            if not isinstance(source["url"], str):
+                raise ValueError("image source url must be a string")
             record = {"url": source["url"]}
+    for key in ("url", "data"):
+        if record.get(key) is not None and not isinstance(record[key], (str, bytes)):
+            raise ValueError(f"image {key} must be a string")
     data = record.get("data")
     if isinstance(data, str) and data:
         try:
