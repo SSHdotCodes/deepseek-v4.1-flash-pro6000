@@ -237,6 +237,50 @@ def test_deadline_bounds_endless_informational_responses(monkeypatch):
     assert reads[-1] < 19  # the last read only got the time that was left
 
 
+def test_deadline_bounds_every_partial_send(monkeypatch):
+    """A peer that reads 16 KiB every 19 s: httpcore's own write loop would give each partial send the full
+    20 s timeout; through the pinned backend every send gets only the time left (real SyncStream, fake socket)."""
+    import socket
+
+    import httpcore
+    from httpcore._backends.sync import SyncStream
+
+    from ds41_api import vision
+
+    clock = [1000.0]
+    monkeypatch.setattr(vision.time, "monotonic", lambda: clock[0])
+    timeouts = []
+
+    class SlowReader:
+        def __init__(self):
+            self.timeout, self.sent = None, 0
+
+        def settimeout(self, value):
+            self.timeout = value
+            timeouts.append(value)
+
+        def send(self, data):
+            if self.sent:  # the first 16 KiB fit the empty send buffer; after that 16 KiB per 19 s
+                if self.timeout < 19:
+                    clock[0] += self.timeout
+                    raise socket.timeout("timed out")
+                clock[0] += 19
+            n = min(len(data), 16384)
+            self.sent += n
+            return n
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", lambda self, *a, **k: SyncStream(SlowReader()))
+    deadline = clock[0] + 60
+    stream = vision._pinned_backend("8.8.8.8", ["8.8.8.8"], deadline).connect_tcp(host="8.8.8.8", port=80)
+    with pytest.raises(httpcore.TimeoutException):
+        stream.write(b"x" * 200_000, timeout=20)
+    assert clock[0] <= deadline + 1e-9  # never past the deadline
+    assert timeouts[-1] < 19  # the last send only got the time that was left
+
+
 def test_urls_are_canonicalized_before_the_host_check():
     from ds41_api import vision
 
@@ -252,7 +296,9 @@ def test_urls_are_canonicalized_before_the_host_check():
     assert c("http://8.8.8.8/a;variant=red.png?x=1")[3] == "/a;variant=red.png?x=1"
     for bad, match in [("http://user:pw@images.example/x.png", "credentials"), ("http://images.example:0/x", "port"),
                        ("http://images.example:99999/x.png", "port"), ("http:///x.png", "no host"),
-                       ("http://images.example/" + "a" * 9000, "longer")]:
+                       ("http://images.example/" + "a" * 9000, "longer"),
+                       ("http://8.8.8.8/" + "\N{GRINNING FACE}" * 3000, "once encoded"),
+                       ("http://[2606:4700:4700::1111%25eth0]/x", "zone"), ("http://[2606:4700:4700::1111%\u00e9]/x", "zone")]:
         with pytest.raises(ValueError, match=match):
             c(bad)
 

@@ -201,8 +201,8 @@ def _canonical_url(url: str) -> Tuple[str, str, int, str, str]:
     """(scheme, host, port, target, Host header) of an http(s) URL, computed once so the host that is checked
     is the host that is connected to and named in Host and TLS: the hostname IDNA 2008 encoded (UTS #46, like
     browsers and httpx), the path (with any ;parameters) and query percent-encoded, no fragment. URLs with
-    credentials, ports outside 1..65535 and URLs over MAX_URL_LENGTH are refused; the length cap keeps the
-    whole request within one socket send, so a peer that reads slowly cannot stretch the write."""
+    credentials, IPv6 zone ids, ports outside 1..65535 and URLs over MAX_URL_LENGTH (before and after
+    encoding) are refused."""
     if len(url) > MAX_URL_LENGTH:
         raise ValueError(f"image URL is longer than {MAX_URL_LENGTH} characters")
     parts = urlsplit(url)
@@ -222,9 +222,14 @@ def _canonical_url(url: str) -> Tuple[str, str, int, str, str]:
         raise ValueError("image URL has no host")
     try:
         literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if literal.version == 6 and literal.scope_id is not None:
+            raise ValueError("image URL must not use an IPv6 zone id")
         authority = f"[{literal}]" if literal.version == 6 else str(literal)
         host = str(literal)
-    except ValueError:
+    else:
         if not host.isascii():
             import idna
 
@@ -237,6 +242,8 @@ def _canonical_url(url: str) -> Tuple[str, str, int, str, str]:
     target = quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
     if parts.query:
         target += "?" + quote(parts.query, safe="/%:@!$&'()*+,;=-._~?")
+    if len(target) + len(host_header) > MAX_URL_LENGTH:
+        raise ValueError(f"image URL is longer than {MAX_URL_LENGTH} characters once encoded")
     return scheme, host, port, target, host_header
 
 
@@ -263,7 +270,19 @@ def _pinned_backend(expected_host: str, addresses: List[str], deadline: float):
             return self._stream.read(max_bytes, bounded(timeout))
 
         def write(self, buffer, timeout=None):
-            self._stream.write(buffer, bounded(timeout))
+            # httpcore's SyncStream.write loops over partial sends and gives each the full timeout, so a peer
+            # that reads slowly could stretch one write far past the deadline. Here every send gets the time left.
+            sock = getattr(self._stream, "_sock", None)
+            if sock is None or not hasattr(sock, "send"):
+                return self._stream.write(buffer, bounded(timeout))
+            try:
+                while buffer:
+                    sock.settimeout(bounded(timeout))
+                    buffer = buffer[sock.send(buffer):]
+            except socket.timeout as exc:
+                raise httpcore.WriteTimeout(str(exc)) from exc
+            except OSError as exc:
+                raise httpcore.WriteError(str(exc)) from exc
 
         def close(self):
             self._stream.close()
@@ -299,10 +318,10 @@ def _fetch(url: str, deadline: float) -> bytes:
     addresses = _public_addresses(host, port, deadline)
     step = min(REMOTE_TIMEOUT_S, _remaining(deadline))
     timeouts = {"connect": step, "read": step, "write": step, "pool": step}
-    # A URL built from parts: httpcore would reparse a string, dropping ;parameters and IPv6 brackets.
-    request_url = httpcore.URL(scheme=scheme, host=host, port=port, target=target)
     headers = {"Host": host_header, "Accept": "image/*", "User-Agent": "ds41-api"}
     try:
+        # A URL built from parts: httpcore would reparse a string, dropping ;parameters and IPv6 brackets.
+        request_url = httpcore.URL(scheme=scheme, host=host, port=port, target=target)
         with httpcore.ConnectionPool(max_connections=1,
                                      network_backend=_pinned_backend(host, addresses, deadline)) as pool:
             with pool.stream("GET", request_url, headers=headers, extensions={"timeout": timeouts}) as response:
