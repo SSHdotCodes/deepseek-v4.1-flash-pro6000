@@ -25,6 +25,11 @@ __global__ void gather(const unsigned char*x,const unsigned char*s,const float*w
   if(i<H/32)os[size_t(r)*(H/32)+i]=s[size_t(src)*(H/32)+i];
   if(!i)ow[r]=w[slot];
 }
+__global__ void gather_bf16(const __nv_bfloat16*x,const float*w,const int*slots,__nv_bfloat16*out,float*ow){
+  int r=blockIdx.y,i=blockIdx.x*blockDim.x+threadIdx.x,slot=slots[r],src=slot/6;
+  if(i<H)out[size_t(r)*H+i]=x[size_t(src)*H+i];
+  if(!i)ow[r]=w[slot];
+}
 __global__ void scatter(const __nv_bfloat16*x,const int*slots,__nv_bfloat16*out){
   int r=blockIdx.y,i=blockIdx.x*blockDim.x+threadIdx.x;
   if(i<H)out[size_t(slots[r])*H+i]=x[size_t(r)*H+i];
@@ -34,6 +39,9 @@ void select_routes(const float*b,const float*u,int*i,float*w,cudaStream_t s){sel
 void gather_routes(const unsigned char*x,const unsigned char*s,const float*w,const int*slots,
     unsigned char*out,unsigned char*os,float*ow,int rows,cudaStream_t st){
   gather<<<dim3(20,rows),256,0,st>>>(x,s,w,slots,out,os,ow);
+}
+void gather_routes_bf16(const void*x,const float*w,const int*slots,void*out,float*ow,int rows,cudaStream_t st){
+  gather_bf16<<<dim3(20,rows),256,0,st>>>((const __nv_bfloat16*)x,w,slots,(__nv_bfloat16*)out,ow);
 }
 void scatter_routes(const void*x,const int*slots,void*out,int rows,cudaStream_t s){
   scatter<<<dim3(20,rows),256,0,s>>>((const __nv_bfloat16*)x,slots,(__nv_bfloat16*)out);

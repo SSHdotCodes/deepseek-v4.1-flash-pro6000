@@ -11,6 +11,7 @@ struct PrefillData {
   Device hidden, previous_pre, ffn_input, ffn_post, ffn_comb;
   Device window, selected, candidates, ids, weights, quant, scales, routed, capture;
   Device bx{256*H}, bs{256*H/32}, bw{256*4};
+  Device bxh; // EXL3: 256 gathered BF16 rows
   Device gate{256*I*2}, up{256*I*2}, act{256*I*2},
       eq{256*I}, es{256*I/32}, down{256*H*2};
   std::array<std::vector<int64_t>,2> rowids;
@@ -223,18 +224,22 @@ Json pmoe(int l,ds41e::prefill::Span span) {
   std::map<ds41::ExpertId,std::vector<Batch>> batches;
   std::vector<ds41::ExpertId> needed;
   size_t job=0,offset=0;
+  if(exl3 && !pf.bxh.p) pf.bxh.resize(size_t(256)*H*2);
   for(auto &g:groups) {
     auto id=ds41::expert_id(l,g.expert);needed.push_back(id);
     for(size_t first=0;first<g.slots.size();first+=256) {
       int m=int(std::min<size_t>(256,g.slots.size()-first));
       std::copy_n(g.slots.data()+first,m,cpu_slots+offset);
-      cpu_jobs[job+0]={id,m,pf.bx.as<uint8_t>(),pf.bs.as<uint8_t>(),pf.gate.as<Bf16>()};
-      cpu_jobs[job+1]={id,m,pf.bx.as<uint8_t>(),pf.bs.as<uint8_t>(),pf.up.as<Bf16>()};
-      cpu_jobs[job+2]={id,m,pf.eq.as<uint8_t>(),pf.es.as<uint8_t>(),pf.down.as<Bf16>()};
+      // EXL3: gathered BF16 rows in, BF16 activations (act) into the down projection.
+      const uint8_t *x=exl3?pf.bxh.as<uint8_t>():pf.bx.as<uint8_t>(),*xs=exl3?nullptr:pf.bs.as<uint8_t>();
+      cpu_jobs[job+0]={id,m,x,xs,pf.gate.as<Bf16>()};
+      cpu_jobs[job+1]={id,m,x,xs,pf.up.as<Bf16>()};
+      cpu_jobs[job+2]=exl3?ds41::GemmJob{id,m,pf.act.as<uint8_t>(),nullptr,pf.down.as<Bf16>()}:
+          ds41::GemmJob{id,m,pf.eq.as<uint8_t>(),pf.es.as<uint8_t>(),pf.down.as<Bf16>()};
       batches[id].push_back({job,offset,m});job+=3;offset+=m;
     }
   }
-  CK(ds41::quantize_mxfp8(pf.ffn_input.as<Bf16>(base*H*2),pf.quant.as<uint8_t>(),
+  if(!exl3) CK(ds41::quantize_mxfp8(pf.ffn_input.as<Bf16>(base*H*2),pf.quant.as<uint8_t>(),
       pf.scales.as<uint8_t>(),int(count),H,stream));
   auto resident_before=experts->stats();
 
@@ -245,6 +250,17 @@ Json pmoe(int l,ds41e::prefill::Span span) {
   pstream(needed,[&](auto id,const ds41::DeviceExpert* table,auto s){
     auto &timer=*compute.at(dispatched++);CK(cudaEventRecord(timer.start,s));
     for(const auto &b:batches.at(id)) {
+      if(exl3) {
+        ds41e::prefill::gather_routes_bf16(pf.ffn_input.as<char>(base*H*2),pf.weights.as<float>(base*6*4),
+            gpu_slots+b.offset,pf.bxh.p,pf.bw.as<float>(),b.rows,s);
+        CK(ds41::grouped_exl3_prefill(table,gpu_jobs+b.job,1,ds41::Projection::Gate,I,H,b.rows,s));
+        CK(ds41::grouped_exl3_prefill(table,gpu_jobs+b.job+1,1,ds41::Projection::Up,I,H,b.rows,s));
+        CK(ds41::swiglu(pf.gate.as<Bf16>(),pf.up.as<Bf16>(),pf.bw.as<float>(),pf.act.as<Bf16>(),b.rows,I,10,s));
+        CK(ds41::grouped_exl3_prefill(table,gpu_jobs+b.job+2,1,ds41::Projection::Down,H,I,b.rows,s));
+        ds41e::prefill::scatter_routes(pf.down.p,gpu_slots+b.offset,pf.routed.as<char>(base*6*H*2),b.rows,s);
+        CK(cudaGetLastError());
+        continue;
+      }
       ds41e::prefill::gather_routes(pf.quant.as<uint8_t>(),pf.scales.as<uint8_t>(),
           pf.weights.as<float>(base*6*4),gpu_slots+b.offset,pf.bx.as<uint8_t>(),
           pf.bs.as<uint8_t>(),pf.bw.as<float>(),b.rows,s);

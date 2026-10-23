@@ -13,17 +13,24 @@
       ],
       "release_source_changes": [
         "include/ds41/engine.hpp",
+        "include/ds41/hotpath/kernels.cuh",
+        "include/ds41/prefill/kernels.cuh",
         "include/ds41/vision.hpp",
         "src/forward.cu",
+        "src/hotpath/batch.inc",
+        "src/hotpath/kernels.cu",
+        "src/hotpath/streamed.inc",
+        "src/main.cpp",
         "src/prefill/batch.inc",
         "src/prefill/chunk.inc",
+        "src/prefill/kernels.cu",
         "src/prefill/native.inc",
         "src/server.cpp",
         "src/vision.cu",
         "tests/vision_probe.cpp"
       ],
       "files": 74,
-      "tree_sha256": "1f9c0790e3c95603eba1dcee6d7c4a69287d7b817f18513c914bfbe954f534b2"
+      "tree_sha256": "5bdb4c6c6aaa731881ae81393537ee82c29b33c2a80744eba77165009258012b"
     },
     {
       "path": "components/moe",
@@ -89,6 +96,19 @@
       ],
       "files": 5,
       "tree_sha256": "ba1601bcfbf774fad4ac421f1092bdeaebe4ca96e3e9955116fb48f49bf67e51"
+    },
+    {
+      "path": "components/exl3",
+      "role": "EXL3 K3 (mul1) grouped expert GEMMs behind the native GemmJob/DeviceExpert ABI, for \"experts\": \"k3\"",
+      "origin_repo": "exl3k",
+      "origin_commit": "5883d38d88ca76bc10836f0d3dc1f9c3cbdb81ff",
+      "origin_tree_sha256": "bd5dd1cca026f1fc0a3895bca4cf85f9ff94b1edc755fca0c3882eea7044fc16",
+      "origin_files": 4,
+      "release_build_files": [
+        "CMakeLists.txt"
+      ],
+      "files": 5,
+      "tree_sha256": "9c9d9781e02f60c4a50e214c5e0e989012608b5bb619f6a99076f259a6036ec8"
     }
   ],
   "dependencies": {
@@ -113,5 +133,5 @@
     "driver": "615.71.09",
     "gpu": "RTX PRO 6000 Blackwell Workstation Edition (sm_120a)"
   },
-  "note": "Each component tree is extracted unchanged from its origin commit in the project's private development repositories, except the files in release_build_files: CMake/build scripts written or edited so the tree builds standalone (install rules, component paths, no machine paths), and the engine files in release_source_changes: image input, added in this repo (docs/engine.md#images). tree_sha256 covers the tree as shipped; origin_tree_sha256 the tree as extracted."
+  "note": "Each component tree is extracted unchanged from its origin commit in the project's private development repositories, except the files in release_build_files: CMake/build scripts written or edited so the tree builds standalone (install rules, component paths, no machine paths), and the engine files in release_source_changes: image input (docs/engine.md#images) and the EXL3 3-bit expert path (docs/exl3.md), added in this repo. components/exl3 carries its origin's kernel sources unchanged; that repository's tests, benchmarks and fixtures are not included (results in docs/exl3.md). tree_sha256 covers the tree as shipped; origin_tree_sha256 the tree as extracted."
 }

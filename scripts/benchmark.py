@@ -6,7 +6,8 @@ benchmarks/cases over the engine socket, once per seed: an 8K-token agentic warm
 then three short chats, one 2.3K-token multi-turn follow-up and two 8K-token agentic prompts, 256 tokens each.
 Prompts are pre-encoded with the official encoding and thinking at "high"; temperature 1.0, top-p 1.0.
 Records TTFT, decode tok/s (first to last token) and a SHA-256 of every token sequence. The tokens depend only on
-the seed: on the same GPU, driver and build they should equal benchmarks/results-20261018.json.
+the seed: on the same GPU, driver and build they should equal benchmarks/results-20261018.json (with
+"experts": "k3" in config.local.json, benchmarks/results-k3-20261023.json).
 
   python3 scripts/benchmark.py --seeds 21 22 --out results/bench.json
 """
@@ -29,6 +30,8 @@ import run
 CASES = ['agentic-001:64', 'chat-000:256', 'agentic-000:256', 'mt-000:256', 'chat-001:256', 'chat-002:256',
          'agentic-001:256']
 REFERENCE = run.ROOT / 'benchmarks/results-20261018.json'
+# with "experts": "k3" (the EXL3 3-bit bank) the tokens are compared with this run instead
+K3_REFERENCE = run.ROOT / 'benchmarks/results-k3-20261023.json'
 
 
 def submit(path, request_id, case, sampling):
@@ -68,6 +71,8 @@ def run_seed(cfg, seed, workdir):
     path = workdir / 'engine.sock'
     path.unlink(missing_ok=True)
     run.evict_page_cache(cfg['weights'])
+    if cfg['experts'] == 'k3':
+        run.evict_page_cache(cfg['k3_bank'])
     log = (workdir / f'engine-{seed}.log').open('w')
     start = time.perf_counter()
     engine = subprocess.Popen(run.command(cfg, path), stdout=log, stderr=subprocess.STDOUT,
@@ -101,10 +106,11 @@ def run_seed(cfg, seed, workdir):
         log.close()
 
 
-def compare(results):
-    if not REFERENCE.exists():
+def compare(results, path=None):
+    path = path or REFERENCE
+    if not path.exists():
         return None
-    reference = {(r['seed'], i): c['tokens_sha256'] for r in json.loads(REFERENCE.read_text())['runs']
+    reference = {(r['seed'], i): c['tokens_sha256'] for r in json.loads(path.read_text())['runs']
                  for i, c in enumerate(r['cases'])}
     pairs = [(reference.get((r['seed'], i)), c['tokens_sha256']) for r in results for i, c in enumerate(r['cases'])]
     known = [(a, b) for a, b in pairs if a]
@@ -128,9 +134,9 @@ def main():
     results = [run_seed(cfg, seed, workdir) for seed in args.seeds]
     summary = {'decode_tok_s_mean': round(statistics.mean(r['decode_tok_s_mean'] for r in results), 3),
                'per_seed': {r['seed']: r['decode_tok_s_mean'] for r in results},
-               'tokens_vs_reference': compare(results)}
+               'tokens_vs_reference': compare(results, K3_REFERENCE if cfg['experts'] == 'k3' else REFERENCE)}
     environment = {k: v for k, v in run.environment(cfg, render=False).items() if k.startswith(('DS41_', 'CUFILE_'))}
-    report = {'schema': 'ds41-bench-v1', 'host_gib': run.host_gib(cfg), 'gds': run.gds(cfg),
+    report = {'schema': 'ds41-bench-v1', 'experts': cfg['experts'], 'host_gib': run.host_gib(cfg), 'gds': run.gds(cfg),
               'command': run.command(cfg, workdir / 'engine.sock'), 'environment': environment,
               'summary': summary, 'runs': results}
     args.out.parent.mkdir(parents=True, exist_ok=True)

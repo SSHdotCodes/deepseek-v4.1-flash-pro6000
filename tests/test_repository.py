@@ -140,6 +140,24 @@ class ProfileTests(unittest.TestCase):
                      '--compact-woa', '--prefetch-lookahead'):
             self.assertIn(flag, cmd)
 
+    def test_k3_profile(self):
+        cfg = dict(self.config(), experts='k3', k3_bank='/data/ds41/k3-bank')
+        with patch.object(run, 'meminfo', return_value={'MemTotal': 126573804 * 1024}):
+            cmd = run.command(cfg, Path('/run/ds41/engine.sock'))
+            native = run.command(self.config(), Path('/run/ds41/engine.sock'))
+        for flag, value in {'--expert-slots': '5745', '--placement': str(ROOT / 'profiles/k3-p80.placement'),
+                            '--exl3-experts': '/data/ds41/k3-bank/records-k3.tsv',
+                            '--exl3-receipts': '/data/ds41/k3-bank/receipts.json',
+                            '--experts': '/data/ds41/generated/records.tsv'}.items():
+            self.assertEqual(cmd[cmd.index(flag) + 1], value, flag)
+        self.assertNotIn('--exl3-experts', native)
+        # every other flag is the measured native profile
+        strip = {'--expert-slots', '--placement', '--exl3-experts', '--exl3-receipts'}
+        keep = lambda c: [x for i, x in enumerate(c) if x not in strip and (i == 0 or c[i - 1] not in strip)]
+        self.assertEqual(keep(cmd), keep(native))
+        # the same expert VRAM as the native profile: K3 slots plus the drafter's 384 native experts
+        self.assertLessEqual(run.K3_EXPERT_SLOTS * 13316096 + 384 * 18808832, run.EXPERT_SLOTS * 18808832)
+
     def test_environment(self):
         cfg = dict(self.config(), gds=False)
         env = run.environment(cfg, render=False)
@@ -180,6 +198,41 @@ class ProfileTests(unittest.TestCase):
                 ops[line.split()[0]] = ops.get(line.split()[0], 0) + 1
         self.assertEqual(ops, {'recent': 1, 'decay': 1, 'pools': 1, 'lfu': 1, 'host': 5480, 'vram': 3240,
                                'budget': 43, 'host_budget': 43})
+
+    def test_k3_placement(self):
+        def parse(name):
+            lines = [l for l in (ROOT / 'profiles' / name).read_text().splitlines() if l and not l.startswith('#')]
+            budgets = {int(l.split()[1]): int(l.split()[2]) for l in lines if l.startswith('budget ')}
+            return [l for l in lines if not l.startswith(('budget ', 'host_budget '))], budgets, lines
+        native, native_budgets, _ = parse('p80-mtp48.placement')
+        k3, budgets, lines = parse('k3-p80.placement')
+        self.assertEqual(native, k3)  # same pins, host seeds and policy
+        pins = sum(1 for l in k3 if l.startswith('vram '))
+        self.assertEqual(pins + sum(budgets.values()), run.K3_EXPERT_SLOTS)
+        self.assertEqual([budgets[l] for l in (40, 41, 42)], [0, 0, 0])
+        self.assertTrue(all(int(l.split()[1]) < 15360 for l in k3 if l.startswith(('vram ', 'host '))))
+        self.assertTrue(all(l.split()[2] == '0' for l in lines if l.startswith('host_budget ') and int(l.split()[1]) >= 40))
+        # the dynamic slots follow the native per-layer shares
+        for l in range(40):
+            self.assertLessEqual(abs(budgets[l] - native_budgets[l] * 2505 / 1068), 1, l)
+
+    def test_k3_bank_lock(self):
+        lock = json.loads((ROOT / 'scripts/assets/k3-bank.json').read_text())
+        layers = sorted(l for s in lock['sources'] for l in s['layers'])
+        self.assertEqual(layers, list(range(40)))
+        for s in lock['sources']:
+            self.assertEqual(len(s['revision']), 40)
+            self.assertEqual(s['license'], 'MIT')
+        self.assertEqual(sorted(map(int, lock['bank_sha256'])), list(range(40)))
+        self.assertTrue(all(len(d) == 64 for d in lock['bank_sha256'].values()))
+        import k3_bank
+        v = k3_bank.VIEWS
+        self.assertEqual([v[k] for k in ('gate', 'gate_scale', 'up', 'up_scale', 'down', 'down_scale')],
+                         [(0, 4423680), (4423680, 14848), (4438528, 4423680), (8862208, 14848),
+                          (8877056, 4423680), (13300736, 14848)])
+        # the engine checks the same layout (validate_k3_records)
+        forward = (ROOT / 'engine/src/forward.cu').read_text()
+        self.assertIn('REC = 13316096, TB = 320 * 144 * 48 * 2, SB = 2 * (5120 + 2304)', forward)
 
 
 class BenchmarkTests(unittest.TestCase):

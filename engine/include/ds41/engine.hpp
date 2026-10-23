@@ -21,6 +21,10 @@ struct Config {
   // row with this library's ds41_fuse_head_decode (bitwise-gated against the promoted cuBLAS head).
   std::string fused_head_library;
   std::string auxiliary;
+  // EXL3 K3 target experts (layers 0..39): a DS41MOE01 manifest over the repacked bank (records-k3.tsv)
+  // and its receipts. --experts stays the native manifest; only its MTP records (ids >= 15360) are used,
+  // in a separate fully VRAM-resident store, so DSpark draft math is unchanged.
+  std::string exl3_experts, exl3_receipts;
   int max_context = 1048576;
   size_t cuda_stack_bytes = 8192; // 0 leaves automatic driver growth unchanged
   size_t expert_slots = 64, host_bytes = 0;

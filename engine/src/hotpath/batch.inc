@@ -267,10 +267,13 @@ void bmoe(int l,int m) {
 
   std::vector<ds41::GemmJob> gj,uj,dj;
   for(const auto &e:plan.experts) {
-    gj.push_back({e.id,e.count,bx.as<uint8_t>(e.begin*H),
+    // EXL3: gathered BF16 rows in, BF16 activations (act) into the down projection.
+    if(exl3) gj.push_back({e.id,e.count,bxh.as<uint8_t>(e.begin*H*2),nullptr,gate.as<Bf16>(e.begin*I*2)});
+    else gj.push_back({e.id,e.count,bx.as<uint8_t>(e.begin*H),
         bxs.as<uint8_t>(e.begin*H/32),gate.as<Bf16>(e.begin*I*2)});
     uj.push_back(gj.back()); uj.back().output=up.as<Bf16>(e.begin*I*2);
-    dj.push_back({e.id,e.count,eq.as<uint8_t>(e.begin*I),
+    if(exl3) dj.push_back({e.id,e.count,act.as<uint8_t>(e.begin*I*2),nullptr,compact_down.as<Bf16>(e.begin*H*2)});
+    else dj.push_back({e.id,e.count,eq.as<uint8_t>(e.begin*I),
         es.as<uint8_t>(e.begin*I/32),compact_down.as<Bf16>(e.begin*H*2)});
   }
   zc_begin();
@@ -283,10 +286,14 @@ void bmoe(int l,int m) {
   zc_end();
   for(int r=0;r<m;++r) route_weights(unbiased.as<float>(r*384*4),
       ids_device.as<int>(r*6*4),route.as<float>(r*6*4),6,stream);
-  CK(ds41::quantize_mxfp8(x.as<Bf16>(),aq.as<uint8_t>(),as.as<uint8_t>(),m,H,stream));
-  hotpath::gather_routes(aq.as<uint8_t>(),as.as<uint8_t>(),route.as<float>(),
-      route_source.as<int>(),route_slots.as<int>(),bx.as<uint8_t>(),
-      bxs.as<uint8_t>(),broute.as<float>(),plan.count,stream);
+  if(exl3) hotpath::gather_routes_bf16(x.p,route.as<float>(),route_source.as<int>(),
+      route_slots.as<int>(),bxh.p,broute.as<float>(),plan.count,stream);
+  else {
+    CK(ds41::quantize_mxfp8(x.as<Bf16>(),aq.as<uint8_t>(),as.as<uint8_t>(),m,H,stream));
+    hotpath::gather_routes(aq.as<uint8_t>(),as.as<uint8_t>(),route.as<float>(),
+        route_source.as<int>(),route_slots.as<int>(),bx.as<uint8_t>(),
+        bxs.as<uint8_t>(),broute.as<float>(),plan.count,stream);
+  }
   bgate(size_t(l)*hotpath::GateLayout::LayerBytes+hotpath::GateLayout::RouteIds,
         ids_device.p,6*4,m);
   bgate(size_t(l)*hotpath::GateLayout::LayerBytes+hotpath::GateLayout::RouteWeights,
@@ -301,16 +308,13 @@ void bmoe(int l,int m) {
   io_ms+=clock_ms()-t;
   try {
     bgraph(p+".experts."+std::to_string(plan.ids.size()),m,[&]{
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),jobs.as<ds41::GemmJob>(),
-          int(gj.size()),ds41::Projection::Gate,I,H,stream));
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),up_jobs.as<ds41::GemmJob>(),
-          int(uj.size()),ds41::Projection::Up,I,H,stream));
+      CK(expert_gemm(jobs.as<ds41::GemmJob>(),int(gj.size()),ds41::Projection::Gate,I,H,stream));
+      CK(expert_gemm(up_jobs.as<ds41::GemmJob>(),int(uj.size()),ds41::Projection::Up,I,H,stream));
       CK(ds41::swiglu(gate.as<Bf16>(),up.as<Bf16>(),broute.as<float>(),
           act.as<Bf16>(),plan.count,I,10,stream));
-      CK(ds41::quantize_mxfp8(act.as<Bf16>(),eq.as<uint8_t>(),es.as<uint8_t>(),
+      if(!exl3) CK(ds41::quantize_mxfp8(act.as<Bf16>(),eq.as<uint8_t>(),es.as<uint8_t>(),
           plan.count,I,stream));
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),down_jobs.as<ds41::GemmJob>(),
-          int(dj.size()),ds41::Projection::Down,H,I,stream));
+      CK(expert_gemm(down_jobs.as<ds41::GemmJob>(),int(dj.size()),ds41::Projection::Down,H,I,stream));
       hotpath::scatter_routes(compact_down.p,route_slots.as<int>(),down.p,plan.count,stream);
       bshared(p,m);
       CK(ds41::reduce_experts(down.as<Bf16>(),ids_device.as<int32_t>(),
@@ -577,7 +581,7 @@ void ensure_lanes() {
       &logits,&scores,&top,&visible,&position_device,&blocks,&block_visible,&chosen_blocks,
       &candidate_ids,&candidate_top,&top_scratch,&rows_raw,&scales_raw,&rows_bf,&engram_kv,
       &rows_interleaved,&braw_kv,&braw_score,&batch_tokens,&route_source,&route_slots,
-      &bx,&bxs,&broute,&compact_down,&sparse_scores,&work_jobs,&work_up_jobs,&work_down_jobs,
+      &bx,&bxs,&broute,&bxh,&compact_down,&sparse_scores,&work_jobs,&work_up_jobs,&work_down_jobs,
       &work_rows,&batch_frequencies,&compressed_frequencies,&lengths1,&lengths2,
       &packed_keys,&packed_globals};
   if(woa_scratch.bytes) members.push_back(&woa_scratch);

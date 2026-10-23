@@ -45,14 +45,13 @@ void bmoe_streamed(const std::string &p,int m,const hotpath::RoutePlan &plan,
     // The device job descriptors carry every layer/expert/output address.
     // Reuse this body across layers; dimensions and scratch addresses are fixed.
     bgraph("experts.stream."+std::to_string(n)+"."+std::to_string(count),m,[&]{
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),work_jobs.as<ds41::GemmJob>(),
-          n,ds41::Projection::Gate,I,H,stream));
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),work_up_jobs.as<ds41::GemmJob>(),
-          n,ds41::Projection::Up,I,H,stream));
-      hotpath::activate_routes(gate.p,up.p,broute.as<float>(),work_rows.as<int>(),
+      CK(expert_gemm(work_jobs.as<ds41::GemmJob>(),n,ds41::Projection::Gate,I,H,stream));
+      CK(expert_gemm(work_up_jobs.as<ds41::GemmJob>(),n,ds41::Projection::Up,I,H,stream));
+      if(exl3) hotpath::activate_routes_bf16(gate.p,up.p,broute.as<float>(),work_rows.as<int>(),
+          act.p,count,stream);
+      else hotpath::activate_routes(gate.p,up.p,broute.as<float>(),work_rows.as<int>(),
           eq.as<uint8_t>(),es.as<uint8_t>(),count,stream);
-      CK(ds41::grouped_mxfp4_native_parallel(experts->table(),work_down_jobs.as<ds41::GemmJob>(),
-          n,ds41::Projection::Down,H,I,stream));
+      CK(expert_gemm(work_down_jobs.as<ds41::GemmJob>(),n,ds41::Projection::Down,H,I,stream));
     });
     if(event) {
       CK(cudaEventRecord(event->end,stream));

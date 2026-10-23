@@ -87,6 +87,10 @@ int main(int argc, char **argv) {
         c.rope = v;
       else if (a == "--experts")
         c.experts = v;
+      else if (a == "--exl3-experts")
+        c.exl3_experts = v;
+      else if (a == "--exl3-receipts")
+        c.exl3_receipts = v;
       else if (a == "--fused-head")
         c.fused_head_library = v;
       else if (a == "--fuse-library") {

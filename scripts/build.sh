@@ -73,7 +73,7 @@ fi
 # anonymous-namespace symbol names from the source path, so the Engram library's bytes, which auxiliary.json
 # authenticates, depend on where the repo is cloned; step 3 binds the library actually built.)
 PREFIX_MAP="-ffile-prefix-map=$ROOT/="
-for c in moe dense spark-policy fuse-head; do
+for c in moe dense spark-policy fuse-head exl3; do
   step "component $c"
   build_type=Release; [[ $c == dense ]] && build_type=
   cmake -S "$ROOT/components/$c" -B "$BUILD/$c" -DCMAKE_BUILD_TYPE="$build_type" -DCMAKE_CUDA_COMPILER="$NVCC" \

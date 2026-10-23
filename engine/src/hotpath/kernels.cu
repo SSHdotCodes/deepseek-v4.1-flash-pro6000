@@ -18,6 +18,13 @@ __global__ void gather(const uint8_t *x, const uint8_t *s, const float *w,
   if (i < H / 32) os[r * (H / 32) + i] = s[source[r] * (H / 32) + i];
   if (!i) ow[r] = w[slots[r]];
 }
+// EXL3 experts take BF16 rows: the same route gather without FP8 quantization.
+__global__ void gather_bf16(const B *x, const float *w, const int *source,
+                            const int *slots, B *out, float *ow) {
+  int r = blockIdx.y, i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < H) out[r * H + i] = x[source[r] * H + i];
+  if (!i) ow[r] = w[slots[r]];
+}
 __global__ void scatter(const B *in, const int *slots, B *out) {
   int r = blockIdx.y, i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i < H) out[slots[r] * H + i] = in[r * H + i];
@@ -72,6 +79,17 @@ __global__ void activation(const B *gate,const B *up,const float *weights,
   q[off]=__nv_cvt_float_to_fp8(fminf(448.f,fmaxf(-448.f,__fmul_rn(z,inv))),__NV_SATFINITE,__NV_E4M3);
   if(!lane) s[row*72+group]=uint8_t(e);
 }
+// activation() up to its BF16 rounding, which is the EXL3 down projection's input.
+__global__ void activation_bf16(const B *gate,const B *up,const float *weights,
+                                const int *rows,B *out) {
+  int row=rows[blockIdx.y],col=blockIdx.x*blockDim.x+threadIdx.x;
+  if(col>=2304) return;
+  int off=row*2304+col;
+  float g=fminf(__bfloat162float(gate[off]),10.f);
+  float u=fminf(10.f,fmaxf(-10.f,__bfloat162float(up[off])));
+  float z=__fmul_rn(g/(1.f+expf(-g)),u);
+  out[off]=__float2bfloat16_rn(__fmul_rn(weights[row],z));
+}
 __global__ void frequencies(const float *table,float *main,float *compressed,
                             const int64_t *position,int rows,int context) {
   int i=threadIdx.x+blockIdx.x*blockDim.x;
@@ -103,6 +121,11 @@ void gather_routes(const uint8_t *x, const uint8_t *s, const float *w,
                    uint8_t *os, float *ow, int count, cudaStream_t st) {
   gather<<<dim3(20, count), 256, 0, st>>>(x,s,w,source,slots,out,os,ow);
 }
+void gather_routes_bf16(const void *x, const float *w, const int *source,
+                        const int *slots, void *out, float *ow, int count,
+                        cudaStream_t st) {
+  gather_bf16<<<dim3(20, count), 256, 0, st>>>((const B *)x,w,source,slots,(B *)out,ow);
+}
 void scatter_routes(const void *in, const int *slots, void *out, int count,
                     cudaStream_t s) {
   scatter<<<dim3(20,count),256,0,s>>>((const B *)in,slots,(B *)out);
@@ -117,6 +140,10 @@ void rms_decode(const void *x,const void *w,void *out,int rows,int cols,cudaStre
 void activate_routes(const void *gate,const void *up,const float *weights,
                      const int *rows,uint8_t *q,uint8_t *s,int count,cudaStream_t st) {
   activation<<<dim3(18,count),128,0,st>>>((const B*)gate,(const B*)up,weights,rows,q,s,72);
+}
+void activate_routes_bf16(const void *gate,const void *up,const float *weights,
+                          const int *rows,void *out,int count,cudaStream_t st) {
+  activation_bf16<<<dim3(9,count),256,0,st>>>((const B*)gate,(const B*)up,weights,rows,(B*)out);
 }
 void stage_frequencies(const float *table,float *main,float *compressed,
                        const int64_t *position,int rows,int context,cudaStream_t s) {

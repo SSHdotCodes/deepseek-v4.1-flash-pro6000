@@ -10,6 +10,7 @@
 #include "ds41/dense.h"
 #include "ds41/engine.hpp"
 #include "ds41/engram_async.hpp"
+#include "ds41/exl3.cuh"
 #include "ds41/kernels.cuh"
 #include "ds41/native_store.hpp"
 #include "ds41/offload.hpp"
@@ -21,8 +22,10 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <sys/stat.h>
 #include <cublas_v2.h>
 #include <filesystem>
 #include <fstream>
@@ -210,6 +213,18 @@ class Native final : public Forward, public hotpath::GateEvidence {
   cublasHandle_t blas = nullptr;
   std::map<std::string, Weight> weights;
   std::unique_ptr<ds41::OffloadStore> experts;
+  // --exl3-experts: `experts` holds EXL3 K3 target experts (layers 0..39) and this store the native
+  // MXFP4 MTP experts, all pinned in VRAM. Without it, `experts` serves every logical ID.
+  std::unique_ptr<ds41::OffloadStore> mtp_experts;
+  bool exl3 = false;
+  size_t expert_slot_bytes = 18808832;
+  ds41::OffloadStore &spark_store() { return mtp_experts ? *mtp_experts : *experts; }
+  // Target-layer expert GEMM. EXL3 jobs read BF16 rows; native jobs MXFP8 rows and scales.
+  cudaError_t expert_gemm(const ds41::GemmJob *jobs, int count, ds41::Projection p,
+                          int n, int k, cudaStream_t s) {
+    return exl3 ? ds41::grouped_exl3(experts->table(), jobs, count, p, n, k, s)
+                : ds41::grouped_mxfp4_native_parallel(experts->table(), jobs, count, p, n, k, s);
+  }
   std::unique_ptr<hotpath::FusedOps> fused;
   std::unique_ptr<ds41::DirectReader> reader;
   std::unique_ptr<ds41::HostBuffer> pages, host;
@@ -246,6 +261,7 @@ class Native final : public Forward, public hotpath::GateEvidence {
       engram_kv{(HC + 1) * H * 2}, rows_interleaved{24 * 264};
   Device braw_kv{6*512*4}, braw_score{6*512*4}, batch_tokens{6*4};
   Device route_source{36*4}, route_slots{36*4}, bx{36*H}, bxs{36*H/32}, broute{36*4};
+  Device bxh; // EXL3: 36 gathered BF16 rows
   Device compact_down{36*H*2}, sparse_scores{6*64*640*4};
   Device work_jobs{36*sizeof(ds41::GemmJob)}, work_up_jobs{36*sizeof(ds41::GemmJob)},
       work_down_jobs{36*sizeof(ds41::GemmJob)}, work_rows{36*4};
@@ -351,8 +367,10 @@ public:
 #else
     if(c.async_retire) retirement_futures.reserve(240);
 #endif
-    if (c.expert_slots < 6 || c.expert_slots > 5000)
-      throw std::invalid_argument("expert slots must be 6..5000");
+    exl3 = !c.exl3_experts.empty();
+    if (c.expert_slots < 6 || c.expert_slots > (exl3 ? 8000 : 5000))
+      throw std::invalid_argument("expert slots must be 6..5000 (6..8000 with --exl3-experts)");
+    if (exl3) bxh.resize(36 * H * 2);
     eos_id =
         read_json(c.weights + "/config.json").at("eos_token_id").get<int>();
     CK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
@@ -433,6 +451,15 @@ public:
     // The manifest is not trusted to select different weights: every tensor
     // view must land on the indexed native tensor in this verified checkpoint.
     validate_records(records);
+    if (exl3) {
+      std::vector<ds41::Record> mtp;
+      for (auto &r : records) if (r.id >= 15360) mtp.push_back(r);
+      records = ds41::load_records(c.exl3_experts);
+      validate_k3_records(records, c.exl3_receipts);
+      expert_slot_bytes = (size_t(records.front().bytes) + 4095) / 4096 * 4096;
+      make_mtp_store(std::move(mtp));
+      vram_checkpoint("native_after_mtp_store");
+    }
     if(c.prefill)prefill_records=records;
     ds41::OffloadStore::Config ec;
     ec.slots = c.expert_slots;
@@ -449,8 +476,19 @@ public:
 #endif
     experts = std::make_unique<ds41::OffloadStore>(std::move(records), ec);
     vram_checkpoint("native_after_store");
-    if (!c.placement.empty())
-      experts->place(ds41::load_placement(c.placement));
+    if (!c.placement.empty()) {
+      auto placement = ds41::load_placement(c.placement);
+      if (mtp_experts) {
+        // The MTP experts are already pinned in their own store.
+        auto mtp = [](ds41::ExpertId id) { return id >= 15360; };
+        auto &v = placement.vram_pins, &hr = placement.host_residents;
+        v.erase(std::remove_if(v.begin(), v.end(), mtp), v.end());
+        hr.erase(std::remove_if(hr.begin(), hr.end(), mtp), hr.end());
+        for (int l = 40; l < 43; ++l)
+          placement.dynamic_slots_per_layer[l] = placement.host_slots_per_layer[l] = 0;
+      }
+      experts->place(placement);
+    }
 #if DS41_MOE_SOURCE_API>=4
     if(c.reset_cache_history) experts->reset_history();
 #endif
@@ -462,7 +500,7 @@ public:
     }
     reset();
     std::cerr << "ds41d native M1 loaded; UNQUALIFIED; expert slots="
-              << c.expert_slots << "\n";
+              << c.expert_slots << (exl3 ? " (EXL3 K3 target experts, native MTP store)" : "") << "\n";
   }
   ~Native() override {
     if (stream)
@@ -481,6 +519,7 @@ public:
     graphs.clear(); // Captured consumers must die before the store/table.
     fused.reset();
     experts.reset();
+    mtp_experts.reset();
     reader.reset();
     pages.reset();
     host.reset();
@@ -604,6 +643,11 @@ public:
   }
   uint64_t prefetch_experts(const std::vector<uint32_t> &ids, PrefetchIntent intent) override {
     for(auto id:ids) if(id>=ds41::expert_count) throw std::invalid_argument("prefetch logical expert id");
+    if(mtp_experts && std::any_of(ids.begin(),ids.end(),[](uint32_t id){return id>=15360;})) {
+      std::vector<uint32_t> target;
+      for(auto id:ids) if(id<15360) target.push_back(id);
+      return target.empty()?0:prefetch_experts(target,intent);
+    }
     try {
       for(auto it=prefetch_tickets.begin();it!=prefetch_tickets.end();) {
         if(it->completion.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
@@ -825,7 +869,9 @@ public:
     j["moe_stats_snapshot"]=stale?"last successful snapshot after error":"fresh";
     if(stale) j["moe_stats_error"]=stats_error;
     j["cpu_only_experts"]=0; // CPU backend is not integrated in this adapter.
-    j["expert_kernel"]="grouped_mxfp4_native_parallel";
+    j["expert_kernel"]=exl3?"grouped_exl3 (target), grouped_mxfp4_native_parallel (MTP)":"grouped_mxfp4_native_parallel";
+    j["target_expert_format"]=exl3?"EXL3 K3 mul1":"MXFP4";
+    if(mtp_experts) j["mtp_expert_store"]="native MXFP4, 384 VRAM pins";
     j["xk_enabled"]=false; // Cache-only adapter never constructs DecodeBackend/XK.
     j["moe_demand_grouping"]="sorted unique logical-ID union per layer/verify";
     j["dynamic_host"]=config.dynamic_host;j["async_retire"]=config.async_retire;
@@ -923,9 +969,9 @@ public:
     j["prefill_arena_device_bytes"]=prefill_bytes;
     j["prefill_staging_device_bytes"]=prefill_stage_bytes;
     j["target_device_requested_bytes"]=weight_gpu+arena+kv_bytes+prefill_bytes+prefill_stage_bytes;
-    j["expert_slot_bytes"]=18808832; j["expert_slots"]=config.expert_slots;
-    j["expert_payload_device_bytes"]=uint64_t(config.expert_slots)*18808832;
-    j["moe_staging_pinned_host_bytes"]=uint64_t(8)*18808832;
+    j["expert_slot_bytes"]=expert_slot_bytes; j["expert_slots"]=config.expert_slots;
+    j["expert_payload_device_bytes"]=uint64_t(config.expert_slots)*expert_slot_bytes+(mtp_experts?uint64_t(384)*18808832:0);
+    j["moe_staging_pinned_host_bytes"]=uint64_t(8)*expert_slot_bytes+(mtp_experts?uint64_t(8)*18808832:0);
     j["engine_staging_pinned_host_bytes"]=(16+1)*(1<<20);
     j["graphs"]=graphs.size();
     size_t stack=0;CK(cudaDeviceGetLimit(&stack,cudaLimitStackSize));
@@ -993,11 +1039,11 @@ private:
     need = logical;
     std::sort(need.begin(), need.end());
     need.erase(std::unique(need.begin(), need.end()), need.end());
-    if (need.size() > config.expert_slots)
+    if (!mtp_experts && need.size() > config.expert_slots)
       throw std::runtime_error(
           "DSpark unique demand exceeds expert slot budget");
     t = clock_ms();
-    auto lease = experts->need_now(need, stream);
+    auto lease = spark_store().need_now(need, stream);
     io_ms += clock_ms() - t;
     try {
       int count = rows * 3;
@@ -1028,24 +1074,24 @@ private:
                               spark_aq.as<uint8_t>(), spark_as.as<uint8_t>(),
                               rows, H, stream));
       CK(ds41::grouped_mxfp4_native_parallel(
-          experts->table(), spark_jobs.as<ds41::GemmJob>(), count,
+          spark_store().table(), spark_jobs.as<ds41::GemmJob>(), count,
           ds41::Projection::Gate, I, H, stream));
       CK(ds41::grouped_mxfp4_native_parallel(
-          experts->table(), spark_up_jobs.as<ds41::GemmJob>(), count,
+          spark_store().table(), spark_up_jobs.as<ds41::GemmJob>(), count,
           ds41::Projection::Up, I, H, stream));
       CK(ds41::swiglu(spark_gate.as<Bf16>(), spark_up.as<Bf16>(), route_weights,
                       spark_act.as<Bf16>(), count, I, 10, stream));
       CK(ds41::quantize_mxfp8(spark_act.as<Bf16>(), spark_eq.as<uint8_t>(),
                               spark_es.as<uint8_t>(), count, I, stream));
       CK(ds41::grouped_mxfp4_native_parallel(
-          experts->table(), spark_down_jobs.as<ds41::GemmJob>(), count,
+          spark_store().table(), spark_down_jobs.as<ds41::GemmJob>(), count,
           ds41::Projection::Down, H, I, stream));
       // The store may recycle slots only after the down consumers complete.
-      experts->retire(std::move(lease), stream);
+      spark_store().retire(std::move(lease), stream);
     } catch (...) {
       cudaStreamSynchronize(stream);
       if (lease.owner)
-        experts->retire(std::move(lease), stream);
+        spark_store().retire(std::move(lease), stream);
       throw;
     }
   }
@@ -1535,35 +1581,32 @@ private:
     io_ms += clock_ms() - t;
     try {
       std::vector<ds41::GemmJob> job(6);
+      // EXL3 experts read the BF16 FFN input and BF16 activations directly.
       for (int j = 0; j < 6; ++j)
-        job[j] = {need[j], 1, aq.as<uint8_t>(), as.as<uint8_t>(),
-                  gate.as<Bf16>(j * I * 2)};
+        job[j] = {need[j], 1, exl3 ? x.as<uint8_t>() : aq.as<uint8_t>(),
+                  exl3 ? nullptr : as.as<uint8_t>(), gate.as<Bf16>(j * I * 2)};
       upload(jobs, job.data(), job.size() * sizeof(ds41::GemmJob));
       for (int j = 0; j < 6; ++j)
         job[j].output = up.as<Bf16>(j * I * 2);
       upload(up_jobs, job.data(), job.size() * sizeof(ds41::GemmJob));
       for (int j = 0; j < 6; ++j)
-        job[j] = {need[j], 1, eq.as<uint8_t>(j * I), es.as<uint8_t>(j * I / 32),
-                  down.as<Bf16>(j * H * 2)};
+        job[j] = {need[j], 1, exl3 ? act.as<uint8_t>(j * I * 2) : eq.as<uint8_t>(j * I),
+                  exl3 ? nullptr : es.as<uint8_t>(j * I / 32), down.as<Bf16>(j * H * 2)};
       upload(down_jobs, job.data(), job.size() * sizeof(ds41::GemmJob));
       graph(p + ".experts", [&] {
         route_weights(unbiased.as<float>(), ids_device.as<int>(),
                       route.as<float>(), 6, stream);
-        CK(ds41::quantize_mxfp8(x.as<Bf16>(), aq.as<uint8_t>(),
-                                as.as<uint8_t>(), 1, H, stream));
-        CK(ds41::grouped_mxfp4_native_parallel(
-            experts->table(), jobs.as<ds41::GemmJob>(), 6,
-            ds41::Projection::Gate, I, H, stream));
-        CK(ds41::grouped_mxfp4_native_parallel(
-            experts->table(), up_jobs.as<ds41::GemmJob>(), 6,
-            ds41::Projection::Up, I, H, stream));
+        if (!exl3)
+          CK(ds41::quantize_mxfp8(x.as<Bf16>(), aq.as<uint8_t>(),
+                                  as.as<uint8_t>(), 1, H, stream));
+        CK(expert_gemm(jobs.as<ds41::GemmJob>(), 6, ds41::Projection::Gate, I, H, stream));
+        CK(expert_gemm(up_jobs.as<ds41::GemmJob>(), 6, ds41::Projection::Up, I, H, stream));
         CK(ds41::swiglu(gate.as<Bf16>(), up.as<Bf16>(), route.as<float>(),
                         act.as<Bf16>(), 6, I, 10, stream));
-        CK(ds41::quantize_mxfp8(act.as<Bf16>(), eq.as<uint8_t>(),
-                                es.as<uint8_t>(), 6, I, stream));
-        CK(ds41::grouped_mxfp4_native_parallel(
-            experts->table(), down_jobs.as<ds41::GemmJob>(), 6,
-            ds41::Projection::Down, H, I, stream));
+        if (!exl3)
+          CK(ds41::quantize_mxfp8(act.as<Bf16>(), eq.as<uint8_t>(),
+                                  es.as<uint8_t>(), 6, I, stream));
+        CK(expert_gemm(down_jobs.as<ds41::GemmJob>(), 6, ds41::Projection::Down, H, I, stream));
         linear(p + ".shared_experts.w1", x.p, sg.p, I, H);
         linear(p + ".shared_experts.w3", x.p, su.p, I, H);
         CK(ds41::swiglu(sg.as<Bf16>(), su.as<Bf16>(), nullptr, sa.as<Bf16>(), 1,
@@ -1667,6 +1710,74 @@ private:
   #include "hotpath/moe_adapter.inc"
   #include "hotpath/batch.inc"
   #include "hotpath/streamed.inc"
+  // EXL3 K3 bank (k3/repack_bank.py): bank-LL.bin holds layer LL's 384 records of 13,316,096 bytes in
+  // expert order; each record is w1, w3, w2 trellis [k/16,n/16,48] int16, each followed by suh[k],svh[n]
+  // FP16. The layout and file coverage are checked exactly. Each receipt holds the bank's SHA-256 and the
+  // size and mtime it had when that digest was last recomputed from disk (k3/verify_bank.sh); a bank
+  // rewritten since then is refused. The digest itself is not recomputed at startup.
+  void validate_k3_records(const std::vector<ds41::Record> &records, const std::string &receipts) {
+    constexpr uint64_t REC = 13316096, TB = 320 * 144 * 48 * 2, SB = 2 * (5120 + 2304);
+    const ds41::TensorView gate{0, TB}, gate_scale{TB, SB}, up{TB + SB, TB},
+        up_scale{2 * TB + SB, SB}, down{2 * TB + 2 * SB, TB}, down_scale{3 * TB + 2 * SB, SB};
+    if (records.size() != 15360)
+      throw std::runtime_error("EXL3 manifest must hold exactly the 15360 target-layer experts");
+    if (receipts.empty())
+      throw std::invalid_argument("--exl3-experts requires --exl3-receipts");
+    auto receipt = read_json(receipts);
+    auto same = [](ds41::TensorView a, ds41::TensorView b) { return a.offset == b.offset && a.bytes == b.bytes; };
+    std::vector<bool> seen(15360);
+    std::map<unsigned, std::string> bank;
+    for (auto &r : records) {
+      if (r.id >= 15360 || seen[r.id]) throw std::runtime_error("EXL3 manifest duplicate/id");
+      seen[r.id] = true;
+      unsigned layer = r.id / 384, expert = r.id % 384;
+      if (r.bytes != REC || !same(r.gate, gate) || !same(r.gate_scale, gate_scale) || !same(r.up, up) ||
+          !same(r.up_scale, up_scale) || !same(r.down, down) || !same(r.down_scale, down_scale))
+        throw std::runtime_error("EXL3 record layout mismatch: expert " + std::to_string(r.id));
+      if (r.extents.size() != 1) throw std::runtime_error("EXL3 record must be one bank extent");
+      const auto &e = r.extents[0];
+      if (e.dst_offset != 0 || e.bytes != REC || (e.required_bytes && e.required_bytes != REC) ||
+          e.file_offset != expert * REC || e.expected_file_bytes != 384 * REC)
+        throw std::runtime_error("EXL3 bank extent mismatch: expert " + std::to_string(r.id));
+      auto &path = bank[layer];
+      if (path.empty()) path = e.path;
+      else if (path != e.path) throw std::runtime_error("EXL3 layer spans several bank files");
+    }
+    for (auto &[layer, path] : bank) {
+      char name[32];
+      std::snprintf(name, sizeof name, "bank-%02u.bin", layer);
+      auto file = std::filesystem::path(path);
+      const auto key = std::to_string(layer);
+      if (file.filename() != name || !receipt.contains(key) ||
+          receipt[key].at("file").get<std::string>() != name ||
+          receipt[key].at("bytes").get<uint64_t>() != 384 * REC ||
+          receipt[key].at("sha256").get<std::string>().size() != 64 || !receipt[key].contains("mtime_ns"))
+        throw std::runtime_error("EXL3 bank has no matching verified receipt: " + path);
+      struct stat st {};
+      if (::stat(path.c_str(), &st) || uint64_t(st.st_size) != 384 * REC ||
+          uint64_t(st.st_mtim.tv_sec) * 1000000000ull + uint64_t(st.st_mtim.tv_nsec) !=
+              receipt[key].at("mtime_ns").get<uint64_t>())
+        throw std::runtime_error("EXL3 bank changed since its receipt was verified: " + path);
+    }
+  }
+  // The DSpark drafter's 384 native MXFP4 experts, permanently resident in VRAM. The DS41_MOE_* policy
+  // and GDS switches configure the target store, so this fixed store is built without them.
+  void make_mtp_store(std::vector<ds41::Record> mtp) {
+    if (mtp.size() != 384) throw std::runtime_error("native manifest must hold the 384 MTP experts");
+    ds41::Placement place;
+    for (auto &r : mtp) place.vram_pins.push_back(r.id);
+    struct Saved { std::vector<std::pair<std::string, std::string>> v;
+      ~Saved() { for (auto &[k, x] : v) setenv(k.c_str(), x.c_str(), 1); } } saved;
+    for (const char *name : {"DS41_MOE_DEMOTE", "DS41_MOE_DEMOTE_EAGER", "DS41_MOE_DRIFT_0_50",
+                             "DS41_MOE_GDS", "DS41_MOE_POLICY_AUDIT"})
+      if (const char *value = std::getenv(name)) { saved.v.emplace_back(name, value); unsetenv(name); }
+    ds41::OffloadStore::Config mc;
+    mc.slots = 384;
+    mc.staging_slots = 8;
+    mc.io_depth = 64;
+    mtp_experts = std::make_unique<ds41::OffloadStore>(std::move(mtp), mc);
+    mtp_experts->place(place);
+  }
   void validate_records(const std::vector<ds41::Record> &records) {
     std::set<unsigned> seen;
     for (auto &r : records) {

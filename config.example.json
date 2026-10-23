@@ -2,6 +2,8 @@
   "weights": "models/DeepSeek-V4.1-Flash-1017",
   "assets": "generated",
   "build": "build",
+  "experts": "native",
+  "k3_bank": "models/k3-bank",
   "port": 18087,
   "unit": "ds41-pro6000",
   "model_id": "deepseek-v4.1-flash-1017",
