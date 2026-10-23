@@ -1,0 +1,219 @@
+{
+ "schema": "ds41-bench-v1",
+ "date": "2026-10-23",
+ "note": "scripts/benchmark.py --seeds 21 22 with \"experts\": \"k3\" on a fresh clone of this repo (scripts/build.sh), started through scripts/run.py (GDS P2P, 104 GiB tier), bank built by scripts/k3_bank.py. The reference for the k3 profile's tokens. Seed 21 also equals the installed service's tokens (same command).",
+ "experts": "k3",
+ "host_gib": 104,
+ "gds": true,
+ "environment": {
+  "DS41_DENSE_REFERENCE": "1",
+  "DS41_MOE_CHUNK_UPLOAD": "1",
+  "DS41_MOE_IO_CHUNK_KB": "2048",
+  "DS41_MOE_DECAY256": "1",
+  "DS41_MOE_DRIFT_0_50": "1",
+  "DS41_MOE_TOKEN_MAJOR_WIDTH1": "1",
+  "DS41_MOE_FAST_MINIMA": "1",
+  "DS41_MOE_DEMOTE": "1",
+  "DS41_SPARK_STOP_Q": "0.65",
+  "DS41_SPARK_STOP_MODEL": "-2.049,2.987,-0.488,0.85,-0.063",
+  "DS41_SPARK_STOP_SCALE": "1,1.05,1.42,1.79,2.16",
+  "DS41_LOOKAHEAD_K": "4",
+  "DS41_LOOKAHEAD_N": "2",
+  "DS41_SPARK_APPEND_RESTORE": "1",
+  "DS41_PREFILL_CHUNK_FIT": "1",
+  "DS41_MOE_GDS": "1",
+  "CUFILE_USE_PCIP2PDMA": "true"
+ },
+ "summary": {
+  "decode_tok_s_mean": 49.129,
+  "per_seed": {
+   "21": 48.569,
+   "22": 49.689
+  },
+  "tokens_vs_reference": null
+ },
+ "runs": [
+  {
+   "seed": 21,
+   "load_s": 35.4,
+   "cases": [
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 64,
+     "ttft_s": 12.653,
+     "decode_tok_s": 37.072,
+     "tokens_sha256": "95f57121e527795027f37408df883027db1d6cf858a83902e1627372a90302ef",
+     "draft_acceptance": 0.8974358974358975,
+     "expert_host_hits": 1713,
+     "expert_nvme_misses": 506,
+     "warmup": true
+    },
+    {
+     "id": "chat-000",
+     "prompt_tokens": 74,
+     "generated": 256,
+     "ttft_s": 1.753,
+     "decode_tok_s": 43.574,
+     "tokens_sha256": "a3bb100e8d9f28d9dbc2b166284e0ec2166a019bd32df6e6eb97a8fc9a211340",
+     "draft_acceptance": 0.8396946564885496,
+     "expert_host_hits": 4048,
+     "expert_nvme_misses": 1296,
+     "warmup": false
+    },
+    {
+     "id": "agentic-000",
+     "prompt_tokens": 7999,
+     "generated": 256,
+     "ttft_s": 11.352,
+     "decode_tok_s": 51.74,
+     "tokens_sha256": "f1fcdbfac3a705a8ed529afae23bcce4ab490d92806b59d0907a34cc72722dde",
+     "draft_acceptance": 0.8410596026490066,
+     "expert_host_hits": 4797,
+     "expert_nvme_misses": 481,
+     "warmup": false
+    },
+    {
+     "id": "mt-000-followup-english",
+     "prompt_tokens": 2335,
+     "generated": 256,
+     "ttft_s": 7.125,
+     "decode_tok_s": 45.734,
+     "tokens_sha256": "cf12ad42d87f4893aee5aa92d08a44cebf301a8ff77f0e5df8acea7f813a6139",
+     "draft_acceptance": 0.7971014492753623,
+     "expert_host_hits": 5937,
+     "expert_nvme_misses": 580,
+     "warmup": false
+    },
+    {
+     "id": "chat-001",
+     "prompt_tokens": 73,
+     "generated": 256,
+     "ttft_s": 1.42,
+     "decode_tok_s": 48.806,
+     "tokens_sha256": "2172830351c2330196867fa73f8861ef37616f0d571da9cd71cbe10954d0785d",
+     "draft_acceptance": 0.7985611510791367,
+     "expert_host_hits": 4764,
+     "expert_nvme_misses": 577,
+     "warmup": false
+    },
+    {
+     "id": "chat-002",
+     "prompt_tokens": 77,
+     "generated": 256,
+     "ttft_s": 1.677,
+     "decode_tok_s": 51.722,
+     "tokens_sha256": "739cf7686b6737f292a4686ee8fa3b480a1a744d9d0353eba75ee6d7c2109eaa",
+     "draft_acceptance": 0.8103448275862069,
+     "expert_host_hits": 3773,
+     "expert_nvme_misses": 332,
+     "warmup": false
+    },
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 256,
+     "ttft_s": 11.152,
+     "decode_tok_s": 49.836,
+     "tokens_sha256": "406730567fe05e932bdcaeb857c4c095d61cb909b13d80c47effb592da9919d2",
+     "draft_acceptance": 0.9276315789473685,
+     "expert_host_hits": 6235,
+     "expert_nvme_misses": 632,
+     "warmup": false
+    }
+   ],
+   "decode_tok_s_mean": 48.569
+  },
+  {
+   "seed": 22,
+   "load_s": 34.6,
+   "cases": [
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 64,
+     "ttft_s": 12.925,
+     "decode_tok_s": 34.915,
+     "tokens_sha256": "e6ab5d0224610d590737378d4c0f2e510cc5410beaab604a5e7b5ae3bf50c349",
+     "draft_acceptance": 0.8620689655172413,
+     "expert_host_hits": 1531,
+     "expert_nvme_misses": 468,
+     "warmup": true
+    },
+    {
+     "id": "chat-000",
+     "prompt_tokens": 74,
+     "generated": 256,
+     "ttft_s": 1.484,
+     "decode_tok_s": 44.062,
+     "tokens_sha256": "86caafbe8f83fb060248f5b81fcd68bc55a44014faf4dcae6ce2ece696023c1f",
+     "draft_acceptance": 0.8780487804878049,
+     "expert_host_hits": 3900,
+     "expert_nvme_misses": 1282,
+     "warmup": false
+    },
+    {
+     "id": "agentic-000",
+     "prompt_tokens": 7999,
+     "generated": 256,
+     "ttft_s": 11.23,
+     "decode_tok_s": 52.701,
+     "tokens_sha256": "ee170fe741d2e947e28579fc900040104a947ab09b953ceb55b2517ec512ef95",
+     "draft_acceptance": 0.8642857142857143,
+     "expert_host_hits": 4341,
+     "expert_nvme_misses": 456,
+     "warmup": false
+    },
+    {
+     "id": "mt-000-followup-english",
+     "prompt_tokens": 2335,
+     "generated": 256,
+     "ttft_s": 6.849,
+     "decode_tok_s": 47.307,
+     "tokens_sha256": "84a1c3733de446797334c789c423fada6bcff24ef9f6a173d3ef9e933c67b759",
+     "draft_acceptance": 0.8802816901408451,
+     "expert_host_hits": 5796,
+     "expert_nvme_misses": 684,
+     "warmup": false
+    },
+    {
+     "id": "chat-001",
+     "prompt_tokens": 73,
+     "generated": 256,
+     "ttft_s": 1.762,
+     "decode_tok_s": 50.793,
+     "tokens_sha256": "5b02a185fb2408ff7b59cadbb265394de7ded7e9cdef3f91b14901c6741812f7",
+     "draft_acceptance": 0.8244274809160306,
+     "expert_host_hits": 4252,
+     "expert_nvme_misses": 466,
+     "warmup": false
+    },
+    {
+     "id": "chat-002",
+     "prompt_tokens": 77,
+     "generated": 256,
+     "ttft_s": 1.626,
+     "decode_tok_s": 52.932,
+     "tokens_sha256": "c920a2e5d4fda798be29aee321f1b197e5daaa24a2f0f334d50f6d24a55516cb",
+     "draft_acceptance": 0.9306930693069307,
+     "expert_host_hits": 3485,
+     "expert_nvme_misses": 329,
+     "warmup": false
+    },
+    {
+     "id": "agentic-001",
+     "prompt_tokens": 8029,
+     "generated": 256,
+     "ttft_s": 11.231,
+     "decode_tok_s": 50.341,
+     "tokens_sha256": "f495a85e71a5eef49cf3ec08a06a01ea16096f9f5a3b4b4fb5ea5bbcd7e5d22e",
+     "draft_acceptance": 0.9403973509933775,
+     "expert_host_hits": 6294,
+     "expert_nvme_misses": 640,
+     "warmup": false
+    }
+   ],
+   "decode_tok_s_mean": 49.689
+  }
+ ]
+}

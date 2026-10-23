@@ -21,6 +21,17 @@
 
 Decode rates include thinking tokens and exclude prompt processing. They vary by prompt with how many experts each token needs from RAM and NVMe and how many drafted tokens are accepted (82–92%). A fresh clone of this repo, built with `scripts/build.sh`, returned the same tokens as the measured service on all 14 benchmark requests, at the same speed (31.61 against 31.67 tok/s), and its binaries have the same code. [Benchmarks](docs/benchmarks.md).
 
+## Faster with 3-bit experts
+
+`"experts": "k3"` runs the 40 target layers' routed experts from public 3-bit EXL3 quants instead of the native MXFP4. Each expert shrinks from 18.8 to 13.3 MB, so more of them fit in VRAM and RAM and fewer come from NVMe. Everything else, the drafter included, stays native.
+
+| same prompts and method, fresh clone | native | `"experts": "k3"` |
+|---|---:|---:|
+| decode, mean of the 6 benchmark prompts, seeds 21 and 22 | 31.65 tok/s | **49.13 tok/s** |
+| time to first token, cold 8K / 32K-token prompt | 13.3 s / 33.4 s | **10.7 s / 28.4 s** |
+
+Perplexity on the model's own outputs is 2.1% higher. GSM8K, HumanEval and tool-call checks showed no loss, and on code the model thinks about 15% longer, so an answer still takes about a quarter less decode time. The bank takes 191 GiB more disk: `scripts/k3_bank.py fetch models/k3-bank` downloads it from the pinned quants and checks every layer's SHA-256. Method and results: [docs/exl3.md](docs/exl3.md).
+
 ## What you need
 
 - **GPU:** one RTX PRO 6000 Blackwell 96 GB, otherwise idle. The engine uses about 93 GB of VRAM.

@@ -18,7 +18,7 @@ import subprocess
 
 FILES = ['ds41d', 'libengine_ops.so', 'libds41_spark.so', 'libds41_spark_policy_v2.so', 'libds41_moe.so',
          'libds41_dense.so', 'libds41_engram.so', 'libds41_attn.so', 'libds41_fuse_head.so',
-         'libds41_fuse_head_half.so', 'libds41_fuse_head_half_tune.so']
+         'libds41_fuse_head_half.so', 'libds41_fuse_head_half_tune.so', 'libds41_exl3.so']
 ANON = re.compile(r'_GLOBAL__N__[0-9a-f]+_')
 CUOBJDUMP = str(Path(os.environ.get('CUDA_HOME', '/usr/local/cuda-13.4')) / 'bin/cuobjdump')
 
@@ -74,6 +74,11 @@ def main():
     rows = []
     for name in FILES:
         a, b = args.build / name, args.reference / name
+        if not (a.exists() and b.exists()):  # libds41_exl3.so is new with the 3-bit expert path
+            row = {'file': name, 'present': [a.exists(), b.exists()]}
+            rows.append(row)
+            print(json.dumps(row), flush=True)
+            continue
         row = {'file': name, 'bytes_identical': a.read_bytes() == b.read_bytes()}
         for key, fn in (('sass', sass), ('host_text', host_text), ('dynamic_symbols', symbols)):
             x, y = fn(a), fn(b)

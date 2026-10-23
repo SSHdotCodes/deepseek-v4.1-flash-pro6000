@@ -1,0 +1,81 @@
+# Clean-clone run of this repo on the reference machine, 2026-10-23, paths shortened to <repo>, <weights> and
+# <bank>. Builds the k3 commit with scripts/build.sh, compares the binaries with the installed service build
+# (binary-comparison-installed.json; the exl3 row was added by rerunning the updated scripts/compare_binaries.py),
+# runs the repository tests, scripts/benchmark.py for both profiles, then the API, image and API unit tests on k3.
+== 12:03:54 clone
+== 12:03:55 setup
+Activate with: source .venv-assets/bin/activate
+API environment OK
+asset environment OK: torch 2.14.0+cu130
+== 12:05:03 download-verify
+Verified 83 files (510.3 GB) at revision 1bae0e1088993b9b82de08f59de5be5a34e42170.
+== 12:05:03 build
+== 12:12:03 compare-binaries
+{"file": "libds41_spark_policy_v2.so", "bytes_identical": true, "sass": "no device code", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_moe.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_dense.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_engram.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_attn.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_fuse_head.so", "bytes_identical": false, "sass": "no device code", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_fuse_head_half.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+{"file": "libds41_fuse_head_half_tune.so", "bytes_identical": false, "sass": "identical", "host_text": "identical", "dynamic_symbols": "identical"}
+== 12:12:17 repo-tests
+OK
+Verified 2 files (0.0 GB) at revision 1bae0e1088993b9b82de08f59de5be5a34e42170.
+== 12:12:18 bench-native
+ "decode_tok_s_mean": 31.651,
+ "per_seed": {
+  "21": 31.252,
+  "22": 32.05
+ },
+ "tokens_vs_reference": {
+  "compared": 14,
+  "identical": 14
+ }
+}
+== 12:17:27 bench-k3
+{"seed": 22, "id": "chat-002", "prompt_tokens": 77, "generated": 256, "ttft_s": 1.626, "decode_tok_s": 52.932}
+{"seed": 22, "id": "agentic-001", "prompt_tokens": 8029, "generated": 256, "ttft_s": 11.231, "decode_tok_s": 50.341}
+{
+ "decode_tok_s_mean": 49.129,
+ "per_seed": {
+  "21": 48.569,
+  "22": 49.689
+ },
+ "tokens_vs_reference": null
+}
+k3 seed 21 tokens == installed v4.3-k3 (lead_bench): True [True, True, True, True, True, True, True]
+== 12:21:21 start-k3
+Preflight passed: idle RTX PRO 6000, 104 GiB RAM tier, NVMe reads: GDS P2P + mountinfo shim.
+Ready: http://127.0.0.1:18187/v1  model deepseek-v4.1-flash-1017
+== 12:22:00 api-check
+PASS  health and models               0.00 s  "deepseek-v4.1-flash-1017"
+PASS  chat                            2.87 s  {"content": "391", "reasoning_chars": 38, "usage": {"prompt_tokens": 44, "completion_tokens": 15, "total_tokens": 59, "completion_tokens_details": {"r
+PASS  reasoning effort                3.32 s  {"low": 18, "max": 19}
+PASS  thinking off                    1.05 s  "391"
+PASS  chat streaming                  1.52 s  {"ttft_s": 1.28, "content": "391"}
+PASS  tool call                       5.36 s  {"name": "get_weather", "arguments": "{\"city\": \"Paris\"}"}
+PASS  tool round trip                 5.02 s  "Right now in Paris it's **17\u00b0C** with **light rain**. You might want an umbrella if you're heading out."
+PASS  anthropic messages              3.07 s  {"text": "391", "stream_events": 27}
+PASS  anthropic tool use              3.09 s  {"city": "Paris"}
+PASS  anthropic count_tokens          0.00 s  {"input_tokens": 18}
+PASS  responses                       1.45 s  "391"
+PASS  cold prompt ~2K                 8.14 s  {"prompt_tokens": 2047, "cached_tokens": 0, "ttft_s": 6.52, "prefill_tok_s": 313.9, "decode_tok_s": 39.78}
+PASS  cold prompt ~8K                12.05 s  {"prompt_tokens": 8192, "cached_tokens": 0, "ttft_s": 10.68, "prefill_tok_s": 767.6, "decode_tok_s": 47.287}
+PASS  follow-up on 8K (reuse)         1.72 s  {"prompt_tokens": 8268, "cached_tokens": 8255, "ttft_s": 0.47, "prefill_tok_s": 17860.3, "decode_tok_s": 51.116}
+PASS  cold prompt ~32K               29.75 s  {"prompt_tokens": 32765, "cached_tokens": 0, "ttft_s": 28.38, "prefill_tok_s": 1155.6, "decode_tok_s": 48.891}
+15/15 checks passed
+== 12:23:18 vision-e2e
+{"check": "color", "ok": true, "answer": "Red", "prompt_tokens": 202, "seconds": 2.52}
+{"check": "text", "ok": true, "answer": "DS41 VISION 7342", "seconds": 3.07}
+{"check": "two", "ok": true, "answer": "Blue, yellow", "seconds": 4.14}
+{"check": "photo", "ok": true, "image": "carrots.jpeg", "answer": "This image features a stack of five fresh, bright orange carrots with green stems arranged against a plain white background.", "prompt_tokens": 456, "seconds": 4.5}
+{"check": "reuse", "ok": true, "first": "Green", "follow_up": "Cool", "first_prompt_tokens": 292, "cached_tokens": 293, "seconds": [2.46, 0.93]}
+{"check": "swap", "ok": true, "answer": "Purple", "cached_tokens": 0, "prompt_tokens": 292, "seconds": 2.41}
+{"check": "anthropic", "ok": true, "answer": "Red", "seconds": 2.09}
+7/7 checks passed
+== 12:23:40 api-tests
+s.....................................                                   [100%]
+109 passed, 1 skipped in 24.91s
+== 12:24:06 stop
+== 12:24:15 done

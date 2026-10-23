@@ -263,6 +263,26 @@ class BenchmarkTests(unittest.TestCase):
                              [json.loads((ROOT / f'benchmarks/cases/{x.split(":")[0]}.json').read_text())['id']
                               for x in benchmark.CASES])
 
+    def test_k3_results(self):
+        k3 = json.loads((ROOT / 'benchmarks/results-k3-20261023.json').read_text())
+        native = json.loads((ROOT / 'benchmarks/k3-20261023/bench-native.json').read_text())
+        self.assertEqual(k3['experts'], 'k3')
+        self.assertEqual(native['experts'], 'native')
+        for d in (k3, native):
+            means = [round(statistics.mean(c['decode_tok_s'] for c in r['cases'][1:]), 3) for r in d['runs']]
+            self.assertEqual(means, [r['decode_tok_s_mean'] for r in d['runs']])
+            self.assertEqual(round(statistics.mean(means), 3), d['summary']['decode_tok_s_mean'])
+            self.assertEqual([[c['id'] for c in r['cases']] for r in d['runs']],
+                             [[json.loads((ROOT / f'benchmarks/cases/{x.split(":")[0]}.json').read_text())['id']
+                               for x in benchmark.CASES]] * 2)
+        # the native run of the same build reproduces the published tokens; the k3 run is its own reference
+        self.assertEqual(benchmark.compare(native['runs']), {'compared': 14, 'identical': 14})
+        self.assertEqual(native['summary']['tokens_vs_reference'], {'compared': 14, 'identical': 14})
+        self.assertEqual(benchmark.compare(k3['runs'], benchmark.K3_REFERENCE), {'compared': 14, 'identical': 14})
+        tasks = json.loads((ROOT / 'benchmarks/k3-20261023/tasks.json').read_text())
+        he = {b: sum(1 for i in tasks['builds'][b]['humaneval_82'] if i['passed']) for b in ('native', 'k3')}
+        self.assertEqual(he, {'native': 76, 'k3': 81})
+
     def test_benchmark_script_reproduced_the_tokens(self):
         report = json.loads((ROOT / 'benchmarks/benchmark-py-20261018.json').read_text())
         with patch.object(benchmark, 'REFERENCE', ROOT / 'benchmarks/results-20261018.json'):

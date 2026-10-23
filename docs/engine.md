@@ -111,13 +111,14 @@ The largest remaining gains are in hardware: more RAM (96 to 104 GiB of tier gav
 |---|---|
 | `engine/` | `ds41d`: checkpoint store and receipt checks, native forward, DSpark drafter (`third_party/spark`), batched prefill, vision encoder, socket server |
 | `components/moe` | expert store: VRAM slots, RAM tier, NVMe reader (`O_DIRECT` and cuFile), MXFP4 kernels |
+| `components/exl3` | EXL3 3-bit expert kernels for `"experts": "k3"` ([3-bit experts](exl3.md)) |
 | `components/dense` | FP8 dense projections and the Engram store |
 | `components/attn` | sliding-window, compressed and indexer attention kernels (built against TileLang's headers) |
 | `components/fuse-head` | the fused BF16 LM head |
 | `components/spark-policy` | the draft policy sidecar |
 | `api/` | the HTTP server; `ds41_api/encoding.py` is DeepSeek's official encoding, unchanged |
 
-Each tree is extracted unchanged from the commit named in `sources.lock.json`, apart from the build files listed there and, in `engine/`, the image-input files listed under `release_source_changes`. Code comments mention the work streams that wrote each component (`sol-moe`, `sol-attn` and so on).
+Each tree is extracted unchanged from the commit named in `sources.lock.json`, apart from the build files listed there and, in `engine/`, the image-input and 3-bit expert files listed under `release_source_changes`. Code comments mention the work streams that wrote each component (`sol-moe`, `sol-attn` and so on).
 
 ### Reproducing the binaries
 

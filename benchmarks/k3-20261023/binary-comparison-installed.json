@@ -1,0 +1,90 @@
+{
+ "schema": "ds41-binary-comparison-v2",
+ "method": "Compare the runtime files of two builds, for example yours and another machine's build/dist.\n\nsass: kernel names and instruction streams from cuobjdump -sass (fatbin headers and PTX are ignored).\nhost_text: objdump -d of .text. Both are normalized for what depends on where the sources were built:\naddresses, RIP-relative displacements and the path hash nvcc puts into anonymous-namespace names.\ndynamic_symbols: nm -D --defined-only.\n\n  python3 scripts/compare_binaries.py build/dist /other/build/dist --out results/binary-comparison.json",
+ "rows": [
+  {
+   "file": "ds41d",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libengine_ops.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_spark.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_spark_policy_v2.so",
+   "bytes_identical": true,
+   "sass": "no device code",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_moe.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_dense.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_engram.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_attn.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_fuse_head.so",
+   "bytes_identical": false,
+   "sass": "no device code",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_fuse_head_half.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_fuse_head_half_tune.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  },
+  {
+   "file": "libds41_exl3.so",
+   "bytes_identical": false,
+   "sass": "identical",
+   "host_text": "identical",
+   "dynamic_symbols": "identical"
+  }
+ ]
+}

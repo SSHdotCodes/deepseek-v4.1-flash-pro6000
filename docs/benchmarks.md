@@ -74,3 +74,7 @@ A fresh clone of this repo, following the README on the same machine (`benchmark
 | cold prompt | 32,765 | 33.4 s | 983 tok/s |
 
 The cold prompts are slices of this repo's own C++ and CUDA sources, so nothing is reused between them. On this machine, time to first token is roughly 6.5 seconds plus 0.8 ms per prompt token.
+
+## 3-bit experts
+
+The optional `"experts": "k3"` profile, on a fresh clone, 2026-10-23 ([details](exl3.md#results), [`benchmarks/k3-20261023/`](../benchmarks/k3-20261023/)): `scripts/benchmark.py --seeds 21 22` measured 49.13 tok/s against 31.65 for the native profile in the same run, and every prompt was faster on both seeds. The native run's 14 token sequences equal the reference above. The clean-clone build matched the installed service build in every runtime file's instructions, host code and symbols ([`binary-comparison-installed.json`](../benchmarks/k3-20261023/binary-comparison-installed.json)); against the native release, only `ds41d` and `libengine_ops.so` differ, the two binaries the change edits ([`binary-comparison-native-release.json`](../benchmarks/k3-20261023/binary-comparison-native-release.json)).
